@@ -1,11 +1,16 @@
-use std::fs::{self, File};
+#[cfg(target_os = "linux")]
+use std::fs;
+use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Write};
+#[cfg(target_os = "linux")]
 use std::os::unix::fs::FileTypeExt;
+#[cfg(target_os = "linux")]
 use std::path::PathBuf;
 use std::time::Duration;
 
 use rmux_pty::{ChildCommand, PtyPair, Signal, TerminalSize};
 
+#[cfg(target_os = "linux")]
 #[derive(Debug, Eq, PartialEq)]
 struct ProcessStat {
     pgrp: i32,
@@ -34,10 +39,12 @@ fn read_line_from_master(
     Ok(line)
 }
 
+#[cfg(target_os = "linux")]
 fn pid_raw(pid: rustix::process::Pid) -> i32 {
     pid.as_raw_pid()
 }
 
+#[cfg(target_os = "linux")]
 fn read_process_stat(pid: rustix::process::Pid) -> Result<ProcessStat, Box<dyn std::error::Error>> {
     let stat_path = format!("/proc/{}/stat", pid_raw(pid));
     let stat = fs::read_to_string(stat_path)?;
@@ -66,14 +73,17 @@ fn read_process_stat(pid: rustix::process::Pid) -> Result<ProcessStat, Box<dyn s
     })
 }
 
+#[cfg(target_os = "linux")]
 fn child_fd_path(pid: rustix::process::Pid, fd: u8) -> PathBuf {
     format!("/proc/{}/fd/{fd}", pid_raw(pid)).into()
 }
 
+#[cfg(target_os = "linux")]
 fn process_exists(pid: rustix::process::Pid) -> bool {
     fs::metadata(format!("/proc/{}", pid_raw(pid))).is_ok()
 }
 
+#[cfg(target_os = "linux")]
 fn wait_for_exit(
     child: &mut rmux_pty::PtyChild,
     timeout: Duration,
@@ -105,6 +115,7 @@ fn allocated_pair_round_trips_resized_terminal_size() -> Result<(), Box<dyn std:
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn spawned_child_is_session_and_foreground_group_leader() -> Result<(), Box<dyn std::error::Error>>
 {
     let mut spawned = ChildCommand::new("/bin/sh")
@@ -127,6 +138,25 @@ fn spawned_child_is_session_and_foreground_group_leader() -> Result<(), Box<dyn 
     spawned.child().kill(Signal::KILL)?;
     let status = spawned.child_mut().wait()?;
     assert!(!status.success());
+
+    Ok(())
+}
+
+#[test]
+fn spawned_child_gets_a_controlling_tty() -> Result<(), Box<dyn std::error::Error>> {
+    let mut spawned = ChildCommand::new("/bin/sh")
+        .args(["-c", "tty"])
+        .size(TerminalSize::new(88, 28))
+        .spawn()?;
+
+    let tty = read_line_from_master(spawned.master())?;
+    let status = spawned.child_mut().wait()?;
+
+    assert!(status.success());
+    assert!(
+        tty.trim().starts_with("/dev/"),
+        "expected child to report a real tty, got {tty:?}"
+    );
 
     Ok(())
 }
@@ -160,6 +190,7 @@ fn spawned_child_reads_and_writes_through_master() -> Result<(), Box<dyn std::er
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn kill_terminates_the_pty_process_group() -> Result<(), Box<dyn std::error::Error>> {
     let mut spawned = ChildCommand::new("/bin/sh")
         .args([

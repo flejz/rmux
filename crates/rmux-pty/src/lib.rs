@@ -2,7 +2,7 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![cfg_attr(not(target_os = "linux"), allow(unused_imports, unused_variables))]
 
-//! Linux PTY allocation, sizing, and child-process management for RMUX.
+//! PTY allocation, sizing, and child-process management for RMUX.
 //!
 //! This crate confines PTY and terminal-control boundaries behind a small,
 //! documented API that exposes:
@@ -11,8 +11,8 @@
 //! - child spawning into a controlling terminal-backed PTY, and
 //! - child signaling and reaping.
 
-#[cfg(not(target_os = "linux"))]
-compile_error!("rmux-pty only supports Linux");
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+compile_error!("rmux-pty supports Linux and macOS");
 
 mod backend;
 mod child;
