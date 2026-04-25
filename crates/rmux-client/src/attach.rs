@@ -268,6 +268,16 @@ where
         if ready.is_empty() {
             continue;
         }
+        if closed.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        if !ready.contains(PollFlags::IN) {
+            if ready.contains(PollFlags::HUP) || ready.contains(PollFlags::ERR) {
+                shutdown_attach_writes(&stream)?;
+                return Ok(());
+            }
+            continue;
+        }
 
         let bytes_read = match input.read(&mut read_buffer) {
             Ok(0) => {
