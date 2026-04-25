@@ -1,7 +1,7 @@
 use std::collections::HashMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
+use rmux_os::process;
 use rmux_proto::request::SwitchClientExt3Request;
 use rmux_proto::{CommandOutput, OptionName, RmuxError, ScopeSelector};
 
@@ -363,13 +363,7 @@ fn attached_client_tty_path(attach_pid: u32) -> Option<PathBuf> {
 }
 
 pub(in crate::handler) fn session_selection_prefers_live_process(pid: u32) -> bool {
-    let Ok(stat) = fs::read_to_string(format!("/proc/{pid}/stat")) else {
-        return false;
-    };
-    let Some((_, tail)) = stat.rsplit_once(") ") else {
-        return false;
-    };
-    !matches!(tail.chars().next(), Some('Z' | 'X'))
+    process::is_live(pid)
 }
 
 pub(in crate::handler) fn client_environment_snapshot(
@@ -379,17 +373,7 @@ pub(in crate::handler) fn client_environment_snapshot(
         return launched_as_hidden_daemon().then(current_process_environment_snapshot);
     }
 
-    let environ = fs::read(format!("/proc/{requester_pid}/environ")).ok()?;
-    let mut values = HashMap::new();
-    for entry in environ.split(|byte| *byte == 0) {
-        if entry.is_empty() {
-            continue;
-        }
-        let entry = std::str::from_utf8(entry).ok()?;
-        let (name, value) = entry.split_once('=')?;
-        values.insert(name.to_owned(), value.to_owned());
-    }
-    Some(values)
+    process::environment(requester_pid)
 }
 
 pub(in crate::handler) fn effective_client_terminal_context(

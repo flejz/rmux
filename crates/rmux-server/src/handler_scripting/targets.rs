@@ -1,5 +1,4 @@
 use std::collections::VecDeque;
-use std::fs;
 
 use rmux_core::{
     command_target_metadata, CommandTargetSpec, SessionStore, TargetFindContext, TargetFindFlags,
@@ -236,11 +235,8 @@ fn client_rmux_pane_target(sessions: &SessionStore, requester_pid: u32) -> Optio
         return None;
     }
 
-    let environ = fs::read(format!("/proc/{requester_pid}/environ")).ok()?;
-    let rmux_pane = environ
-        .split(|byte| *byte == 0)
-        .filter_map(|entry| std::str::from_utf8(entry).ok())
-        .find_map(|entry| entry.strip_prefix("RMUX_PANE="))?;
+    let environment = rmux_os::process::environment(requester_pid)?;
+    let rmux_pane = environment.get("RMUX_PANE")?;
     let pane_id = rmux_pane.strip_prefix('%')?.parse::<u32>().ok()?;
 
     sessions

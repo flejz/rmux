@@ -1,5 +1,6 @@
 //! Process inspection helpers.
 
+use std::collections::HashMap;
 #[cfg(target_os = "macos")]
 use std::ffi::CStr;
 use std::os::fd::BorrowedFd;
@@ -35,6 +36,18 @@ pub fn fd_path(pid: u32, fd: i32) -> Option<PathBuf> {
     fd_path_impl(pid, fd)
 }
 
+/// Returns whether `pid` points to a process that still looks usable.
+#[must_use]
+pub fn is_live(pid: u32) -> bool {
+    is_live_impl(pid)
+}
+
+/// Returns a process environment snapshot, when the platform exposes it.
+#[must_use]
+pub fn environment(pid: u32) -> Option<HashMap<String, String>> {
+    environment_impl(pid)
+}
+
 #[cfg(target_os = "linux")]
 fn current_path_impl(pid: u32) -> Option<String> {
     std::fs::read_link(format!("/proc/{pid}/cwd"))
@@ -65,6 +78,23 @@ fn command_name_from_linux_comm(pid: u32) -> Option<String> {
 #[cfg(target_os = "linux")]
 fn fd_path_impl(pid: u32, fd: i32) -> Option<PathBuf> {
     std::fs::read_link(format!("/proc/{pid}/fd/{fd}")).ok()
+}
+
+#[cfg(target_os = "linux")]
+fn is_live_impl(pid: u32) -> bool {
+    let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+        return false;
+    };
+    let Some((_, tail)) = stat.rsplit_once(") ") else {
+        return false;
+    };
+    !matches!(tail.chars().next(), Some('Z' | 'X'))
+}
+
+#[cfg(target_os = "linux")]
+fn environment_impl(pid: u32) -> Option<HashMap<String, String>> {
+    let environ = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
+    environment_from_nul_entries(&environ)
 }
 
 #[cfg(target_os = "macos")]
@@ -156,6 +186,41 @@ fn fd_path_impl(pid: u32, fd: i32) -> Option<PathBuf> {
     string_from_c_chars(info.pvip.vip_path.as_ptr().cast()).map(PathBuf::from)
 }
 
+#[cfg(target_os = "macos")]
+fn is_live_impl(pid: u32) -> bool {
+    let Some(pid) = libc::c_int::try_from(pid).ok() else {
+        return false;
+    };
+    let Some(size) = libc::c_int::try_from(std::mem::size_of::<libc::proc_bsdinfo>()).ok() else {
+        return false;
+    };
+    let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+    let read = unsafe {
+        // SAFETY: `info` points to writable memory sized for the requested flavor.
+        libc::proc_pidinfo(
+            pid,
+            libc::PROC_PIDTBSDINFO,
+            0,
+            info.as_mut_ptr().cast(),
+            size,
+        )
+    };
+    if read < size {
+        return false;
+    }
+
+    let info = unsafe {
+        // SAFETY: `proc_pidinfo` reported that it initialized the full structure.
+        info.assume_init()
+    };
+    info.pbi_status != libc::SZOMB
+}
+
+#[cfg(target_os = "macos")]
+fn environment_impl(pid: u32) -> Option<HashMap<String, String>> {
+    environment_from_macos_procargs(&macos_procargs(pid)?)
+}
+
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn current_path_impl(_pid: u32) -> Option<String> {
     None
@@ -168,6 +233,16 @@ fn command_name_impl(_pid: u32) -> Option<String> {
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn fd_path_impl(_pid: u32, _fd: i32) -> Option<PathBuf> {
+    None
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn is_live_impl(_pid: u32) -> bool {
+    false
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn environment_impl(_pid: u32) -> Option<HashMap<String, String>> {
     None
 }
 
@@ -202,8 +277,160 @@ fn string_from_c_chars(chars: *const libc::c_char) -> Option<String> {
     (!value.is_empty()).then_some(value)
 }
 
+#[cfg(target_os = "macos")]
+fn macos_procargs(pid: u32) -> Option<Vec<u8>> {
+    let pid = libc::c_int::try_from(pid).ok()?;
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid];
+    let mib_len = u32::try_from(mib.len()).ok()?;
+    let mut size = 0;
+    let result = unsafe {
+        // SAFETY: The first sysctl call asks only for the required buffer size.
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            mib_len,
+            std::ptr::null_mut(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if result != 0 || size == 0 {
+        return None;
+    }
+
+    let mut buffer = vec![0; size];
+    let result = unsafe {
+        // SAFETY: `buffer` is writable for `size` bytes reported by sysctl.
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            mib_len,
+            buffer.as_mut_ptr().cast(),
+            &mut size,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if result != 0 || size == 0 {
+        return None;
+    }
+    buffer.truncate(size);
+    Some(buffer)
+}
+
+#[cfg(target_os = "macos")]
+fn environment_from_macos_procargs(buffer: &[u8]) -> Option<HashMap<String, String>> {
+    let argc_size = std::mem::size_of::<libc::c_int>();
+    if buffer.len() < argc_size {
+        return None;
+    }
+    let mut argc_bytes = [0; std::mem::size_of::<libc::c_int>()];
+    argc_bytes.copy_from_slice(&buffer[..argc_size]);
+    let argc = libc::c_int::from_ne_bytes(argc_bytes);
+    if argc < 0 {
+        return None;
+    }
+
+    let mut offset = skip_nul_terminated(buffer, argc_size)?;
+    offset = skip_nul_padding(buffer, offset);
+    for _ in 0..argc {
+        offset = skip_nul_terminated(buffer, offset)?;
+    }
+    offset = skip_nul_padding(buffer, offset);
+    environment_from_nul_entries(&buffer[offset..])
+}
+
+#[cfg(target_os = "macos")]
+fn skip_nul_terminated(buffer: &[u8], offset: usize) -> Option<usize> {
+    let relative_end = buffer.get(offset..)?.iter().position(|byte| *byte == 0)?;
+    Some(offset + relative_end + 1)
+}
+
+#[cfg(target_os = "macos")]
+fn skip_nul_padding(buffer: &[u8], mut offset: usize) -> usize {
+    while buffer.get(offset).is_some_and(|byte| *byte == 0) {
+        offset += 1;
+    }
+    offset
+}
+
+fn environment_from_nul_entries(environ: &[u8]) -> Option<HashMap<String, String>> {
+    let mut values = HashMap::new();
+    for entry in environ.split(|byte| *byte == 0) {
+        if entry.is_empty() {
+            continue;
+        }
+        let entry = std::str::from_utf8(entry).ok()?;
+        let (name, value) = entry.split_once('=')?;
+        values.insert(name.to_owned(), value.to_owned());
+    }
+    Some(values)
+}
+
 fn executable_name(path: &str) -> Option<String> {
     let name = Path::new(path).file_name()?.to_string_lossy();
     let trimmed = name.trim_start_matches('-');
     (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fd_path_rejects_negative_descriptors() {
+        assert_eq!(fd_path(std::process::id(), -1), None);
+    }
+
+    #[test]
+    fn current_process_is_live() {
+        assert!(is_live(std::process::id()));
+    }
+
+    #[test]
+    fn current_process_path_is_available() {
+        let path = current_path(std::process::id()).expect("current process cwd should be visible");
+        assert!(!path.is_empty());
+    }
+
+    #[test]
+    fn current_process_command_name_is_available() {
+        let name =
+            command_name(std::process::id()).expect("current process command should be visible");
+        assert!(!name.is_empty());
+    }
+
+    #[test]
+    fn current_process_environment_is_available() {
+        let environment =
+            environment(std::process::id()).expect("current process environment should be visible");
+        assert!(!environment.is_empty());
+    }
+
+    #[test]
+    fn parses_nul_separated_environment() {
+        let environment = environment_from_nul_entries(b"A=1\0B=two\0\0").expect("environment");
+
+        assert_eq!(environment.get("A").map(String::as_str), Some("1"));
+        assert_eq!(environment.get("B").map(String::as_str), Some("two"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn parses_macos_procargs_environment() {
+        let mut buffer = Vec::new();
+        let argc: libc::c_int = 2;
+        buffer.extend_from_slice(&argc.to_ne_bytes());
+        buffer.extend_from_slice(b"/bin/zsh\0");
+        buffer.extend_from_slice(b"\0\0");
+        buffer.extend_from_slice(b"zsh\0-l\0");
+        buffer.extend_from_slice(b"RMUX_PANE=%1\0LANG=en_US.UTF-8\0\0");
+
+        let environment = environment_from_macos_procargs(&buffer).expect("environment");
+
+        assert_eq!(environment.get("RMUX_PANE").map(String::as_str), Some("%1"));
+        assert_eq!(
+            environment.get("LANG").map(String::as_str),
+            Some("en_US.UTF-8")
+        );
+    }
 }
