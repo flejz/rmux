@@ -5,8 +5,7 @@ use std::os::fd::OwnedFd;
 use rmux_proto::{encode_attach_message, AttachFrameDecoder, AttachMessage};
 use rmux_pty::PtyMaster;
 use rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
-use rustix::net::RecvFlags;
-use tokio::io::{unix::AsyncFd, Interest};
+use tokio::io::unix::AsyncFd;
 use tokio::net::UnixStream;
 use tokio::sync::broadcast;
 use tracing::warn;
@@ -204,17 +203,8 @@ pub(super) async fn read_from_pane(
 }
 
 async fn write_all_to_stream(stream: &UnixStream, mut bytes: &[u8]) -> io::Result<()> {
-    let mut probe = [0_u8; 1];
     while !bytes.is_empty() {
-        let ready = stream
-            .ready(Interest::READABLE | Interest::WRITABLE)
-            .await?;
-        if ready.is_readable() && peer_disconnected(stream, &mut probe)? {
-            return Ok(());
-        }
-        if !ready.is_writable() {
-            continue;
-        }
+        stream.writable().await?;
 
         match stream.try_write(bytes) {
             Ok(0) => {
@@ -239,16 +229,6 @@ async fn write_all_to_stream(stream: &UnixStream, mut bytes: &[u8]) -> io::Resul
     }
 
     Ok(())
-}
-
-fn peer_disconnected(stream: &UnixStream, probe: &mut [u8; 1]) -> io::Result<bool> {
-    match rustix::net::recv(stream, probe, RecvFlags::PEEK) {
-        Ok((_initialized, 0)) => Ok(true),
-        Ok((_initialized, _available)) => Ok(false),
-        Err(rustix::io::Errno::INTR | rustix::io::Errno::AGAIN) => Ok(false),
-        Err(rustix::io::Errno::PIPE | rustix::io::Errno::CONNRESET) => Ok(true),
-        Err(error) => Err(io::Error::from(error)),
-    }
 }
 
 pub(super) fn invalid_attach_message(error: rmux_proto::RmuxError) -> io::Error {
