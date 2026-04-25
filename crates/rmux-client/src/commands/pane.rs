@@ -100,13 +100,18 @@ impl Connection {
         no_command: bool,
         template: Option<String>,
     ) -> Result<Response, ClientError> {
-        self.roundtrip(&Request::DisplayPanes(DisplayPanesRequest {
+        let request = Request::DisplayPanes(DisplayPanesRequest {
             target,
             duration_ms,
             non_blocking,
             no_command,
             template,
-        }))
+        });
+        if non_blocking {
+            self.roundtrip(&request)
+        } else {
+            self.roundtrip_without_read_timeout(&request)
+        }
     }
 
     /// Sends a `pipe-pane` request over the detached RPC channel.
