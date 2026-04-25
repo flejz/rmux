@@ -1,11 +1,8 @@
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 
-use rustix::pty::{grantpt, ioctl_tiocgptpeer, openpt, unlockpt, OpenptFlags};
-use rustix::termios::{tcgetwinsize, tcsetwinsize};
+use crate::{backend, Result, TerminalSize};
 
-use crate::{Result, TerminalSize};
-
-/// The master endpoint of a Linux pseudoterminal.
+/// The master endpoint of a pseudoterminal.
 #[derive(Debug)]
 pub struct PtyMaster {
     fd: OwnedFd,
@@ -14,12 +11,12 @@ pub struct PtyMaster {
 impl PtyMaster {
     /// Queries the current terminal geometry for this PTY.
     pub fn size(&self) -> Result<TerminalSize> {
-        query_size(self.as_fd())
+        backend::query_size(self.as_fd())
     }
 
     /// Resizes this PTY.
     pub fn resize(&self, size: TerminalSize) -> Result<()> {
-        apply_size(self.as_fd(), size)
+        backend::apply_size(self.as_fd(), size)
     }
 
     /// Duplicates the master file descriptor.
@@ -42,7 +39,7 @@ impl AsFd for PtyMaster {
     }
 }
 
-/// The slave endpoint of a Linux pseudoterminal.
+/// The slave endpoint of a pseudoterminal.
 #[derive(Debug)]
 pub struct PtySlave {
     fd: OwnedFd,
@@ -51,7 +48,7 @@ pub struct PtySlave {
 impl PtySlave {
     /// Queries the current terminal geometry for this PTY.
     pub fn size(&self) -> Result<TerminalSize> {
-        query_size(self.as_fd())
+        backend::query_size(self.as_fd())
     }
 
     /// Duplicates the slave file descriptor.
@@ -82,16 +79,9 @@ pub struct PtyPair {
 }
 
 impl PtyPair {
-    /// Allocates a PTY pair using the Linux `ptmx` allocator.
+    /// Allocates a PTY pair using the platform backend.
     pub fn open() -> Result<Self> {
-        let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)?;
-        grantpt(&master)?;
-        unlockpt(&master)?;
-
-        let slave = ioctl_tiocgptpeer(
-            &master,
-            OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC,
-        )?;
+        let (master, slave) = backend::open_pty_pair()?;
 
         Ok(Self {
             master: PtyMaster { fd: master },
@@ -123,13 +113,4 @@ impl PtyPair {
     pub fn into_split(self) -> (PtyMaster, PtySlave) {
         (self.master, self.slave)
     }
-}
-
-fn query_size(fd: BorrowedFd<'_>) -> Result<TerminalSize> {
-    Ok(TerminalSize::from_winsize(tcgetwinsize(fd)?))
-}
-
-fn apply_size(fd: BorrowedFd<'_>, size: TerminalSize) -> Result<()> {
-    tcsetwinsize(fd, size.into_winsize())?;
-    Ok(())
 }

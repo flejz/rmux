@@ -14,6 +14,7 @@
 #[cfg(not(target_os = "linux"))]
 compile_error!("rmux-pty only supports Linux");
 
+mod backend;
 mod child;
 mod pty;
 mod size;

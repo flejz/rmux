@@ -1,14 +1,13 @@
 use std::ffi::OsString;
 use std::fs::File;
-use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
+use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, ExitStatus, Stdio};
 
-use rustix::process::{getpid, ioctl_tiocsctty, kill_process_group, setsid, Pid};
-use rustix::termios::tcsetpgrp;
+use rustix::process::Pid;
 
-use crate::{PtyError, PtyMaster, PtyPair, Result, Signal, TerminalSize};
+use crate::{backend, PtyError, PtyMaster, PtyPair, Result, Signal, TerminalSize};
 
 /// A command configuration for spawning a process inside a newly allocated PTY.
 #[derive(Clone, Debug)]
@@ -164,8 +163,7 @@ impl PtyChild {
     /// preserves teardown correctness even when the session leader has already
     /// delegated work to descendants.
     pub fn kill(&self, signal: Signal) -> Result<()> {
-        kill_process_group(self.pid, signal)?;
-        Ok(())
+        backend::kill_foreground_process_group(self.pid, signal)
     }
 }
 
@@ -200,22 +198,7 @@ fn spawn_child(command: ChildCommand) -> Result<SpawnedPty> {
         std_command.env(key, value);
     }
 
-    let pre_exec = move || {
-        // SAFETY: This closes only the child process' inherited copy of the
-        // PTY master fd. The parent still owns its separate descriptor.
-        unsafe { rustix::io::close(raw_master_fd) };
-
-        setsid().map_err(std::io::Error::from)?;
-
-        // SAFETY: `stdin` has already been wired to the PTY slave by
-        // `Command`, so fd 0 is a valid borrowed descriptor for the rest
-        // of the closure.
-        let slave_stdin = unsafe { BorrowedFd::borrow_raw(0) };
-        ioctl_tiocsctty(slave_stdin).map_err(std::io::Error::from)?;
-        tcsetpgrp(slave_stdin, getpid()).map_err(std::io::Error::from)?;
-
-        Ok(())
-    };
+    let pre_exec = move || backend::setup_child_controlling_terminal(raw_master_fd);
 
     // SAFETY: The closure only performs post-fork child setup that is required
     // for PTY correctness: it closes the child's inherited master fd copy,
