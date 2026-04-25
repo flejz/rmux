@@ -191,6 +191,32 @@ fn wait_for_mode_tree_exit(harness: &CliHarness, target: &str) -> Result<(), Box
     }
 }
 
+fn wait_for_mode_tree_exit_collecting_output(
+    harness: &CliHarness,
+    attach: &mut AttachedSession,
+    target: &str,
+) -> Result<Vec<u8>, Box<dyn Error>> {
+    let deadline = std::time::Instant::now() + IO_TIMEOUT;
+    let mut output_bytes = Vec::new();
+    loop {
+        output_bytes.extend(drain_attach_output_bytes(attach.master_mut())?);
+        let output = harness.run(&[
+            "display-message",
+            "-p",
+            "-t",
+            target,
+            "#{pane_in_mode}|#{pane_mode}",
+        ])?;
+        if common::stdout(&output).trim_end() == "0|" {
+            return Ok(output_bytes);
+        }
+        if std::time::Instant::now() >= deadline {
+            return Err(format!("timed out waiting for mode-tree to exit in {target}").into());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 fn wait_for_mode_tree_enter(harness: &CliHarness, target: &str) -> Result<(), Box<dyn Error>> {
     let deadline = std::time::Instant::now() + IO_TIMEOUT;
     loop {
@@ -886,6 +912,12 @@ fn prefix_w_prefix_x_confirmed_clears_choose_tree_when_host_pane_dies() -> Resul
 
     attach.send_bytes(b"\x02%\x02%\x02\"")?;
     let pane_indexes = wait_for_pane_count(&harness, "alpha", 4)?;
+    let _ = apply_quiescent_attach_output(
+        &mut attach,
+        &mut screen,
+        &mut parser,
+        Duration::from_millis(300),
+    )?;
     for pane_index in &pane_indexes {
         assert_success(&harness.run(&[
             "send-keys",
@@ -913,6 +945,7 @@ fn prefix_w_prefix_x_confirmed_clears_choose_tree_when_host_pane_dies() -> Resul
             "Enter",
         ])?);
     }
+    attach.send_bytes(b"\x02r")?;
     let marker_output = read_until_contains(attach.master_mut(), &last_marker, IO_TIMEOUT)?;
     std::thread::sleep(Duration::from_millis(200));
     let mut marker_bytes = marker_output.into_bytes();
@@ -935,8 +968,31 @@ fn prefix_w_prefix_x_confirmed_clears_choose_tree_when_host_pane_dies() -> Resul
 
     attach.send_bytes(b"y")?;
     wait_for_pane_count(&harness, "alpha", 3)?;
-    std::thread::sleep(Duration::from_millis(1000));
-    let redraw_bytes = drain_attach_output_bytes(attach.master_mut())?;
+    let deadline = std::time::Instant::now() + IO_TIMEOUT;
+    let mut redraw_bytes = Vec::new();
+    let tree_after_kill = loop {
+        std::thread::sleep(Duration::from_millis(50));
+        let next_bytes = drain_attach_output_bytes(attach.master_mut())?;
+        if !next_bytes.is_empty() {
+            redraw_bytes.extend_from_slice(&next_bytes);
+            let transcript = capture_attach_transcript(&mut screen, &mut parser, &next_bytes)?;
+            if !transcript.contains("sort: index")
+                && !transcript.contains("┌ 0 (sort: index)")
+                && !transcript.contains("└────────────────")
+                && (transcript.contains("tester@RMUXHOST:~$")
+                    || transcript.contains("P1")
+                    || transcript.contains("P2")
+                    || transcript.contains("P3"))
+            {
+                break transcript;
+            }
+        }
+        if std::time::Instant::now() >= deadline {
+            break String::from_utf8(
+                screen.capture_transcript(Default::default(), Default::default()),
+            )?;
+        }
+    };
     let redraw_len = redraw_bytes.len();
     let redraw_debug = String::from_utf8_lossy(&redraw_bytes);
     let clear_count = redraw_debug.matches("\x1b[2J").count();
@@ -944,7 +1000,6 @@ fn prefix_w_prefix_x_confirmed_clears_choose_tree_when_host_pane_dies() -> Resul
     let clear_pos = redraw_debug.find("\x1b[2J");
     let first_sort_pos = redraw_debug.find("sort: index");
     let last_sort_pos = redraw_debug.rfind("sort: index");
-    let tree_after_kill = capture_attach_transcript(&mut screen, &mut parser, &redraw_bytes)?;
     let mode_state = common::stdout(&harness.run(&[
         "list-panes",
         "-t",
@@ -1302,15 +1357,22 @@ fn choose_tree_q_restores_the_four_pane_layout_on_the_real_attached_client(
             .filter(|line| !line.is_empty())
             .map(str::to_owned)
             .collect::<Vec<_>>();
+    let _ = apply_quiescent_attach_output(
+        &mut attach,
+        &mut screen,
+        &mut parser,
+        Duration::from_millis(300),
+    )?;
     for pane_index in &pane_indexes {
         assert_success(&harness.run(&[
             "send-keys",
             "-t",
             &format!("alpha:0.{pane_index}"),
-            &format!("printf P{pane_index}"),
+            &format!("echo P{pane_index}"),
             "Enter",
         ])?);
     }
+    attach.send_bytes(b"\x02r")?;
     let marker = pane_indexes
         .last()
         .map(|pane_index| format!("P{pane_index}"))
@@ -1320,6 +1382,10 @@ fn choose_tree_q_restores_the_four_pane_layout_on_the_real_attached_client(
     let mut layout_bytes = marker_output.into_bytes();
     layout_bytes.extend(drain_attach_output_bytes(attach.master_mut())?);
     let baseline = capture_attach_transcript(&mut screen, &mut parser, &layout_bytes)?;
+    let marker_refs = pane_indexes
+        .iter()
+        .map(|pane_index| format!("P{pane_index}"))
+        .collect::<Vec<_>>();
     assert!(
         common::stdout(&harness.run(&["list-panes", "-t", "alpha", "-F", "#{pane_index}"])?)
             .lines()
@@ -1328,18 +1394,37 @@ fn choose_tree_q_restores_the_four_pane_layout_on_the_real_attached_client(
         "expected four panes after the interactive split sequence"
     );
 
+    let active_pane = active_pane_target(&harness, "alpha")?;
     attach.send_bytes(b"\x02w")?;
     let _ = read_until_contains(attach.master_mut(), "windows", IO_TIMEOUT)?;
+    wait_for_mode_tree_enter(&harness, &active_pane)?;
     std::thread::sleep(Duration::from_millis(100));
     let tree_bytes = drain_attach_output_bytes(attach.master_mut())?;
     let _ = capture_attach_transcript(&mut screen, &mut parser, &tree_bytes)?;
 
     attach.send_bytes(b"q")?;
-    let after_q_output = read_until_contains(attach.master_mut(), "tester@RMUXHOST", IO_TIMEOUT)?;
-    std::thread::sleep(Duration::from_millis(200));
-    let mut after_q_bytes = after_q_output.into_bytes();
-    after_q_bytes.extend(drain_attach_output_bytes(attach.master_mut())?);
-    let restored = capture_attach_transcript(&mut screen, &mut parser, &after_q_bytes)?;
+    let mut after_q_bytes =
+        wait_for_mode_tree_exit_collecting_output(&harness, &mut attach, &active_pane)?;
+    let marker_ref_slices = marker_refs.iter().map(String::as_str).collect::<Vec<_>>();
+    let deadline = std::time::Instant::now() + IO_TIMEOUT;
+    let restored = loop {
+        after_q_bytes.extend(drain_attach_output_bytes(attach.master_mut())?);
+        let transcript = capture_attach_transcript(&mut screen, &mut parser, &after_q_bytes)?;
+        after_q_bytes.clear();
+        let panes = transcript_without_status_line(&transcript);
+        if marker_ref_slices
+            .iter()
+            .all(|marker| panes.contains(marker))
+            && !panes.contains("sort: index")
+        {
+            break transcript;
+        }
+        if std::time::Instant::now() >= deadline {
+            panic!("choose-tree q did not settle back to panes before timeout, got:\n{panes}");
+        }
+        std::thread::sleep(Duration::from_millis(50));
+        after_q_bytes = drain_attach_output_bytes(attach.master_mut())?;
+    };
 
     let baseline_panes = transcript_without_status_line(&baseline);
     let restored_panes = transcript_without_status_line(&restored);
@@ -1402,6 +1487,12 @@ fn choose_tree_q_after_resize_restores_the_resized_four_pane_layout() -> Result<
 
     alpha.send_bytes(b"\x02%\x02%\x02\"")?;
     let alpha_indexes = wait_for_pane_count(&harness, "alpha", 4)?;
+    let _ = apply_quiescent_attach_output(
+        &mut alpha,
+        &mut alpha_screen,
+        &mut alpha_parser,
+        Duration::from_millis(300),
+    )?;
     for pane_index in &alpha_indexes {
         assert_success(&harness.run(&[
             "send-keys",
@@ -1415,6 +1506,7 @@ fn choose_tree_q_after_resize_restores_the_resized_four_pane_layout() -> Result<
             "Enter",
         ])?);
     }
+    alpha.send_bytes(b"\x02r")?;
     let alpha_marker = alpha_indexes
         .last()
         .map(|pane_index| format!("A{pane_index}"))
@@ -1449,10 +1541,9 @@ fn choose_tree_q_after_resize_restores_the_resized_four_pane_layout() -> Result<
     std::thread::sleep(Duration::from_millis(1000));
     drain_attach_output(alpha.master_mut())?;
     alpha.send_bytes(b"q")?;
-    wait_for_mode_tree_exit(&harness, &alpha_active_pane)?;
-    let alpha_marker_refs = alpha_markers.iter().map(String::as_str).collect::<Vec<_>>();
     let mut pending_after_q =
-        read_until_contains_all(alpha.master_mut(), &alpha_marker_refs, IO_TIMEOUT)?.into_bytes();
+        wait_for_mode_tree_exit_collecting_output(&harness, &mut alpha, &alpha_active_pane)?;
+    let alpha_marker_refs = alpha_markers.iter().map(String::as_str).collect::<Vec<_>>();
     let deadline = std::time::Instant::now() + IO_TIMEOUT;
     let alpha_restored = loop {
         pending_after_q.extend(drain_attach_output_bytes(alpha.master_mut())?);
@@ -1493,6 +1584,12 @@ fn choose_tree_q_after_resize_restores_the_resized_four_pane_layout() -> Result<
 
     beta.send_bytes(b"\x02%\x02%\x02\"")?;
     let beta_indexes = wait_for_pane_count(&harness, "beta", 4)?;
+    let _ = apply_quiescent_attach_output(
+        &mut beta,
+        &mut beta_screen,
+        &mut beta_parser,
+        Duration::from_millis(300),
+    )?;
     for pane_index in &beta_indexes {
         assert_success(&harness.run(&[
             "send-keys",
@@ -1506,6 +1603,7 @@ fn choose_tree_q_after_resize_restores_the_resized_four_pane_layout() -> Result<
             "Enter",
         ])?);
     }
+    beta.send_bytes(b"\x02r")?;
     let beta_marker = beta_indexes
         .last()
         .map(|pane_index| format!("A{pane_index}"))
@@ -1609,15 +1707,22 @@ fn choose_tree_preview_gutter_uses_tmux_margin_when_columns_overflow() -> Result
             .filter(|line| !line.is_empty())
             .map(str::to_owned)
             .collect::<Vec<_>>();
+    let _ = apply_quiescent_attach_output(
+        &mut attach,
+        &mut screen,
+        &mut parser,
+        Duration::from_millis(300),
+    )?;
     for pane_index in &pane_indexes {
         assert_success(&harness.run(&[
             "send-keys",
             "-t",
             &format!("alpha:0.{pane_index}"),
-            &format!("printf P{pane_index}"),
+            &format!("echo P{pane_index}"),
             "Enter",
         ])?);
     }
+    attach.send_bytes(b"\x02r")?;
     let marker = pane_indexes
         .last()
         .map(|pane_index| format!("P{pane_index}"))
@@ -1631,12 +1736,16 @@ fn choose_tree_preview_gutter_uses_tmux_margin_when_columns_overflow() -> Result
     std::thread::sleep(Duration::from_millis(100));
     let tree_bytes = drain_attach_output_bytes(attach.master_mut())?;
     let tree = capture_attach_transcript(&mut screen, &mut parser, &tree_bytes)?;
+    let chevron_line = tree
+        .lines()
+        .find(|line| line.contains('<'))
+        .ok_or("choose-tree preview did not render a left chevron")?;
     assert!(
-        tree.contains("│ < │"),
+        chevron_line.contains(" < "),
         "choose-tree preview gutter should leave a tmux-style margin around the left chevron, got:\n{tree}"
     );
     assert!(
-        !tree.contains("│< │"),
+        !chevron_line.contains("│<") && !chevron_line.contains("<│"),
         "choose-tree preview gutter should not glue the left chevron to the box border, got:\n{tree}"
     );
 
@@ -1778,13 +1887,22 @@ fn prefix_meta_digits_select_layouts_on_the_real_attached_client() -> Result<(),
     ] {
         assert_success(&harness.run(&["select-layout", "-t", "alpha:0", expected_layout])?);
         let expected_dump = window_layout(&harness, "alpha")?;
-
-        assert_success(&harness.run(&["select-layout", "-t", "alpha:0", starting_layout])?);
-        attach.send_bytes(bytes)?;
-        std::thread::sleep(Duration::from_millis(250));
+        std::thread::sleep(Duration::from_millis(100));
         drain_attach_output(attach.master_mut())?;
 
-        let actual_dump = window_layout(&harness, "alpha")?;
+        assert_success(&harness.run(&["select-layout", "-t", "alpha:0", starting_layout])?);
+        std::thread::sleep(Duration::from_millis(300));
+        drain_attach_output(attach.master_mut())?;
+        attach.send_bytes(bytes)?;
+        let deadline = std::time::Instant::now() + IO_TIMEOUT;
+        let actual_dump = loop {
+            drain_attach_output(attach.master_mut())?;
+            let actual_dump = window_layout(&harness, "alpha")?;
+            if actual_dump == expected_dump || std::time::Instant::now() >= deadline {
+                break actual_dump;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        };
         assert_eq!(
             actual_dump, expected_dump,
             "prefix meta digit {:?} should match select-layout {expected_layout}, got {actual_dump:?}",
