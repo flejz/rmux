@@ -1,22 +1,15 @@
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use rmux_core::command_parser::COMMAND_TABLE;
 
 #[test]
-fn rmux_manpage_renders_with_man_l() -> Result<(), Box<dyn Error>> {
+fn rmux_manpage_renders_with_system_formatter() -> Result<(), Box<dyn Error>> {
     let manpage = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("rmux.1");
-    let output = Command::new("man")
-        .arg("-l")
-        .arg(&manpage)
-        .env("MANPAGER", "cat")
-        .env("PAGER", "cat")
-        .output()?;
+    let rendered = render_manpage(&manpage)?;
+    let rendered = strip_backspace_overstrikes(&rendered);
 
-    let rendered = String::from_utf8_lossy(&output.stdout);
-
-    assert_eq!(output.status.code(), Some(0));
     assert!(rendered.contains("RMUX"));
     assert!(rendered.contains("list-commands"));
     assert!(rendered.contains("choose-window"));
@@ -32,4 +25,41 @@ fn rmux_manpage_renders_with_man_l() -> Result<(), Box<dyn Error>> {
         );
     }
     Ok(())
+}
+
+fn render_manpage(manpage: &Path) -> Result<String, Box<dyn Error>> {
+    let man_output = Command::new("man")
+        .arg("-l")
+        .arg(manpage)
+        .env("MANPAGER", "cat")
+        .env("PAGER", "cat")
+        .output()?;
+
+    if man_output.status.success() {
+        return Ok(String::from_utf8_lossy(&man_output.stdout).into_owned());
+    }
+
+    let mandoc_output = Command::new("mandoc").arg(manpage).output()?;
+    if mandoc_output.status.success() {
+        return Ok(String::from_utf8_lossy(&mandoc_output.stdout).into_owned());
+    }
+
+    Err(format!(
+        "failed to render manpage with man -l ({}) or mandoc ({})",
+        String::from_utf8_lossy(&man_output.stderr),
+        String::from_utf8_lossy(&mandoc_output.stderr)
+    )
+    .into())
+}
+
+fn strip_backspace_overstrikes(input: &str) -> String {
+    let mut stripped = Vec::with_capacity(input.len());
+    for ch in input.chars() {
+        if ch == '\u{8}' {
+            let _ = stripped.pop();
+        } else {
+            stripped.push(ch);
+        }
+    }
+    stripped.into_iter().collect()
 }
