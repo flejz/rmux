@@ -14,6 +14,8 @@ use crate::common::tty_size;
 
 const PTY_RESIZE_TIMEOUT: Duration = Duration::from_secs(1);
 const PTY_RESIZE_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const NEW_TTY_TIMEOUT: Duration = Duration::from_secs(2);
+const NEW_TTY_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 static SESSION_ID: AtomicUsize = AtomicUsize::new(0);
 static SERIAL_EXECUTION_LOCK: Mutex<()> = Mutex::new(());
@@ -38,18 +40,25 @@ pub(super) fn single_new_tty(
     after: &BTreeSet<PathBuf>,
 ) -> Result<PathBuf, Box<dyn Error>> {
     let mut current = after.clone();
+    let deadline = Instant::now() + NEW_TTY_TIMEOUT;
 
-    for _ in 0..50 {
+    loop {
         let new_ttys: Vec<_> = current.difference(before).cloned().collect();
         if let [path] = new_ttys.as_slice() {
             return Ok(path.clone());
         }
 
-        thread::sleep(Duration::from_millis(10));
+        if Instant::now() >= deadline {
+            return Err(io::Error::other(format!(
+                "expected exactly one new tty, observed {}",
+                new_ttys.len()
+            ))
+            .into());
+        }
+
+        thread::sleep(NEW_TTY_POLL_INTERVAL);
         current = crate::common::pane_tty_paths()?;
     }
-
-    Err(io::Error::other("expected exactly one new tty, observed 0").into())
 }
 
 pub(super) fn tty_sizes_by_index(
