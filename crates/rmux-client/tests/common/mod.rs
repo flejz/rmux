@@ -111,11 +111,12 @@ pub(crate) struct TestHarness {
 impl TestHarness {
     pub(crate) fn new(label: &str) -> Self {
         let unique_id = UNIQUE_ID.fetch_add(1, Ordering::Relaxed);
-        let root = std::env::temp_dir().join(format!(
-            "rmux-client-test-{label}-{}-{unique_id}",
-            std::process::id()
+        let root = PathBuf::from("/tmp").join(format!(
+            "rxc-{}-{unique_id}-{}",
+            std::process::id(),
+            compact_label(label)
         ));
-        let socket_path = root.join("default.sock");
+        let socket_path = root.join("s.sock");
 
         Self { root, socket_path }
     }
@@ -130,6 +131,14 @@ impl Drop for TestHarness {
         let _ = std::fs::remove_file(&self.socket_path);
         let _ = std::fs::remove_dir_all(&self.root);
     }
+}
+
+fn compact_label(label: &str) -> String {
+    label
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .take(12)
+        .collect()
 }
 
 fn join_server_thread(
