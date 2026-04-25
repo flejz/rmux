@@ -19,11 +19,22 @@ fn tmux_compat_harness_uses_distinct_socket_paths_under_one_temp_root() -> Resul
     let harness = TmuxCompatHarness::new("tmux-compat-sockets")?;
 
     assert!(harness.rmux_socket_path() != harness.tmux_socket_path());
-    assert!(harness.rmux_socket_path().starts_with(harness.tmpdir()));
-    assert!(harness.tmux_socket_path().starts_with(harness.tmpdir()));
+    let tmpdir = fs::canonicalize(harness.tmpdir())?;
+    let rmux_socket_dir = canonical_socket_parent(harness.rmux_socket_path())?;
+    let tmux_socket_dir = canonical_socket_parent(harness.tmux_socket_path())?;
+    assert!(rmux_socket_dir.starts_with(&tmpdir));
+    assert!(tmux_socket_dir.starts_with(&tmpdir));
     assert!(PTY_SERIALIZATION_NOTE.contains("PTY-heavy tmux compatibility cases"));
     harness.assert_socket_dirs_clean()?;
     Ok(())
+}
+
+fn canonical_socket_parent(socket_path: &Path) -> Result<PathBuf, Box<dyn Error>> {
+    let parent = socket_path
+        .parent()
+        .ok_or("socket path must have a parent")?;
+    fs::create_dir_all(parent)?;
+    Ok(fs::canonicalize(parent)?)
 }
 
 #[test]
