@@ -27,10 +27,11 @@ mod refresh;
 #[path = "handler_attach/state.rs"]
 mod state;
 
+pub(crate) use crate::client_flags::ClientFlags;
+pub(crate) use state::AttachRegistration;
 pub(super) use state::{
     ActiveAttach, ActiveAttachState, DisplayPanesClientState, DisplayPanesLabel,
 };
-pub(crate) use state::{AttachRegistration, ClientFlags};
 
 impl RequestHandler {
     #[cfg(test)]

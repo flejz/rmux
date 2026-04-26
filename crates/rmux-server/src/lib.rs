@@ -3,6 +3,9 @@
 
 //! Tokio-based detached RPC server for RMUX.
 
+#[cfg(any(unix, windows))]
+#[cfg_attr(windows, allow(dead_code))]
+mod client_flags;
 #[cfg(unix)]
 mod clock_mode;
 #[cfg(unix)]
