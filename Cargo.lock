@@ -380,6 +380,7 @@ dependencies = [
  "rmux-server",
  "rustix",
  "tokio",
+ "windows-sys",
 ]
 
 [[package]]

@@ -3,8 +3,14 @@ use std::ffi::OsString;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 #[cfg(unix)]
 use std::os::unix::process::{CommandExt, ExitStatusExt};
+#[cfg(windows)]
+use std::os::windows::io::AsRawHandle;
 use std::path::Path;
 use std::process::Command as ProcessCommand;
+#[cfg(windows)]
+use windows_sys::Win32::Storage::FileSystem::{
+    GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
+};
 
 use super::{connect_with_startserver, ExitFailure, StartupOptions};
 
@@ -66,27 +72,57 @@ pub(super) fn usable_shell_path(path: &Path) -> bool {
         return false;
     }
 
-    !current_executable_identity().is_some_and(|current| same_file_identity(&metadata, &current))
-}
-
-fn current_executable_identity() -> Option<std::fs::Metadata> {
-    std::env::current_exe()
+    !std::env::current_exe()
         .ok()
-        .and_then(|path| std::fs::metadata(path).ok())
+        .is_some_and(|current| same_file_identity_for_paths(path, &current))
 }
 
-pub(super) fn same_file_identity(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
-    same_file_identity_impl(left, right)
+pub(super) fn same_file_identity_for_paths(left: &Path, right: &Path) -> bool {
+    same_file_identity_for_paths_impl(left, right)
 }
 
 #[cfg(unix)]
-fn same_file_identity_impl(left: &std::fs::Metadata, right: &std::fs::Metadata) -> bool {
+fn same_file_identity_for_paths_impl(left: &Path, right: &Path) -> bool {
+    let (Ok(left), Ok(right)) = (std::fs::metadata(left), std::fs::metadata(right)) else {
+        return false;
+    };
     left.dev() == right.dev() && left.ino() == right.ino()
 }
 
 #[cfg(windows)]
-fn same_file_identity_impl(_left: &std::fs::Metadata, _right: &std::fs::Metadata) -> bool {
-    false
+fn same_file_identity_for_paths_impl(left: &Path, right: &Path) -> bool {
+    let (Ok(left), Ok(right)) = (file_identity(left), file_identity(right)) else {
+        return false;
+    };
+    left == right
+}
+
+#[cfg(windows)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WindowsFileIdentity {
+    volume_serial: u32,
+    file_index_high: u32,
+    file_index_low: u32,
+}
+
+#[cfg(windows)]
+fn file_identity(path: &Path) -> std::io::Result<WindowsFileIdentity> {
+    let file = std::fs::File::open(path)?;
+    let mut info = BY_HANDLE_FILE_INFORMATION::default();
+    let ok = unsafe {
+        // SAFETY: the file handle is valid for the duration of the call and
+        // `info` is a writable out-parameter initialized by Windows on success.
+        GetFileInformationByHandle(file.as_raw_handle(), &mut info)
+    };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    Ok(WindowsFileIdentity {
+        volume_serial: info.dwVolumeSerialNumber,
+        file_index_high: info.nFileIndexHigh,
+        file_index_low: info.nFileIndexLow,
+    })
 }
 
 #[cfg(unix)]

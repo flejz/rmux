@@ -61,7 +61,7 @@ use dispatch::{command_has_start_server_flag, default_client_command};
 pub(crate) use error::ExitFailure;
 use shell_startup::run_shell_startup;
 #[cfg(test)]
-use shell_startup::{same_file_identity, usable_shell_path};
+use shell_startup::{same_file_identity_for_paths, usable_shell_path};
 #[cfg(test)]
 use startup::ServerStartupConfig;
 use startup::{run_foreground_server, startup_config_from_cli, StartupOptions};
@@ -247,8 +247,8 @@ fn shell_command_token(token: String) -> String {
 mod tests {
     use super::{
         command_has_start_server_flag, default_client_command, render_list_commands_line,
-        same_file_identity, startup_config_from_cli, top_level_parse_failure, usable_shell_path,
-        ServerStartupConfig,
+        same_file_identity_for_paths, startup_config_from_cli, top_level_parse_failure,
+        usable_shell_path, ServerStartupConfig,
     };
     use crate::cli_args::{
         parse as parse_cli, parse_target_spec, AttachSessionArgs, Command, ListSessionsArgs,
@@ -409,9 +409,7 @@ mod tests {
         let link = dir.join("rmux-shell-hardlink");
         fs::hard_link(&current_exe, &link).expect("create hardlink");
 
-        let current_metadata = fs::metadata(&current_exe).expect("current executable metadata");
-        let link_metadata = fs::metadata(&link).expect("hardlink metadata");
-        assert!(same_file_identity(&current_metadata, &link_metadata));
+        assert!(same_file_identity_for_paths(&current_exe, &link));
         assert!(
             !usable_shell_path(&link),
             "shell startup must reject a differently named hardlink to the current executable"
