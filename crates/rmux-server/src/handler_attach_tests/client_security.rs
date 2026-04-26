@@ -158,38 +158,28 @@ async fn server_access_list_returns_server_access_response() {
 }
 
 struct TtyChild {
-    child: Child,
-    _master_guard: PtyMaster,
+    spawned: rmux_pty::SpawnedPty,
 }
 
 impl TtyChild {
     fn id(&self) -> u32 {
-        self.child.id()
+        self.spawned.child().pid().as_u32()
     }
 }
 
 fn spawn_tty_child() -> Result<TtyChild, Box<dyn std::error::Error>> {
-    let pty = PtyPair::open_with_size(PtyTerminalSize { cols: 80, rows: 24 })?;
-    let master_guard = pty.master().try_clone()?;
-
-    let mut command = Command::new("sh");
-    command
+    let spawned = ChildCommand::new("sh")
         .arg("-c")
         .arg("sleep 60")
-        .stdin(Stdio::from(pty.slave().try_clone()?.into_owned_fd()))
-        .stdout(Stdio::from(pty.slave().try_clone()?.into_owned_fd()))
-        .stderr(Stdio::from(pty.slave().try_clone()?.into_owned_fd()));
-    drop(pty);
+        .size(PtyTerminalSize { cols: 80, rows: 24 })
+        .spawn()?;
 
-    Ok(TtyChild {
-        child: command.spawn()?,
-        _master_guard: master_guard,
-    })
+    Ok(TtyChild { spawned })
 }
 
 fn terminate_child(child: &mut TtyChild) {
-    let _ = child.child.kill();
-    let _ = child.child.wait();
+    let _ = child.spawned.child().terminate_forcefully();
+    let _ = child.spawned.child_mut().wait();
 }
 
 #[tokio::test]

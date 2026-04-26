@@ -17,10 +17,8 @@ use rmux_proto::{
     SessionName, SetOptionMode, SetOptionRequest, SplitWindowRequest, SplitWindowTarget,
     SwitchClientRequest, TerminalSize, WindowTarget,
 };
-use rmux_pty::{PtyMaster, PtyPair, TerminalSize as PtyTerminalSize};
-use rustix::termios::tcgetwinsize;
+use rmux_pty::{ChildCommand, TerminalSize as PtyTerminalSize};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -115,10 +113,10 @@ async fn pane_terminal_size(
             .clone_pane_master_if_alive(session_name, window_index, pane_index)
             .expect("pane terminal is alive")
     };
-    let winsize = tcgetwinsize(&master).expect("pane winsize available");
+    let winsize = master.size().expect("pane winsize available");
     TerminalSize {
-        cols: winsize.ws_col,
-        rows: winsize.ws_row,
+        cols: winsize.cols,
+        rows: winsize.rows,
     }
 }
 

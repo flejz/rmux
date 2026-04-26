@@ -71,7 +71,7 @@ async fn typed_keystroke_wire_reaches_stub_and_acknowledges() {
 
     let (stream, mut peer) = tokio::net::UnixStream::pair().expect("attach stream pair");
     let pty = PtyPair::open().expect("open pty pair");
-    let (pane_master, _pane_slave) = pty.into_split();
+    let pane_master = pty.into_master();
     let pane_writer = open_pane_writer(pane_master).expect("open pane writer");
     let keystroke = AttachedKeystroke::new(b"\x1b[A".to_vec());
     let encoded = encode_attach_message(&AttachMessage::Keystroke(keystroke))
@@ -134,7 +134,7 @@ async fn mouse_keystroke_wire_does_not_error_or_drop_the_attach() {
 
     let (stream, mut peer) = tokio::net::UnixStream::pair().expect("attach stream pair");
     let pty = PtyPair::open().expect("open pty pair");
-    let (pane_master, _pane_slave) = pty.into_split();
+    let pane_master = pty.into_master();
     let pane_writer = open_pane_writer(pane_master).expect("open pane writer");
     let keystroke = AttachedKeystroke::new(b"\x1b[<0;10;10M".to_vec());
     let encoded = encode_attach_message(&AttachMessage::Keystroke(keystroke))
@@ -177,7 +177,7 @@ async fn forward_attach_emits_stop_sequence_when_processing_errors() {
     let handler = Arc::new(RequestHandler::new());
     let (stream, mut peer) = tokio::net::UnixStream::pair().expect("attach stream pair");
     let pty = PtyPair::open().expect("open pty pair");
-    let (pane_master, _pane_slave) = pty.into_split();
+    let pane_master = pty.into_master();
     let outer_terminal =
         OuterTerminal::resolve(&OptionStore::default(), OuterTerminalContext::default());
     let expected_stop = outer_terminal.attach_stop_sequence();
@@ -247,7 +247,7 @@ fn test_attach_target(
     persistent_overlay_state_id: Option<u64>,
 ) -> AttachTarget {
     let pty = PtyPair::open().expect("open pty pair");
-    let (pane_master, _pane_slave) = pty.into_split();
+    let pane_master = pty.into_master();
     AttachTarget {
         session_name: session_name.clone(),
         pane_master,
@@ -401,7 +401,7 @@ async fn forward_attach_emits_display_panes_overlay_for_prefix_q_keystrokes() {
         .await;
 
     let pty = PtyPair::open().expect("open pty pair");
-    let (pane_master, _pane_slave) = pty.into_split();
+    let pane_master = pty.into_master();
     let target = AttachTarget {
         session_name: session_name.clone(),
         pane_master,
