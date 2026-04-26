@@ -37,10 +37,11 @@ use persistent_overlay::{
 #[cfg(unix)]
 pub(crate) use reader::spawn_pane_output_reader;
 #[cfg(unix)]
+pub(crate) use types::LiveAttachInputContext;
+#[cfg_attr(windows, allow(unused_imports))]
 pub(crate) use types::{
-    pane_output_channel, AttachControl, AttachTarget, HandleOutcome, LiveAttachInputContext,
-    OverlayFrame, PaneAlertCallback, PaneAlertEvent, PaneExitCallback, PaneExitEvent,
-    PaneOutputSender,
+    pane_output_channel, AttachControl, AttachTarget, HandleOutcome, OverlayFrame,
+    PaneAlertCallback, PaneAlertEvent, PaneExitCallback, PaneExitEvent, PaneOutputSender,
 };
 #[cfg(unix)]
 use wire::{
