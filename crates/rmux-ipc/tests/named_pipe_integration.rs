@@ -1,5 +1,6 @@
 #![cfg(windows)]
 
+use std::io::ErrorKind;
 use std::io::{Read, Write};
 use std::time::Duration;
 
@@ -55,5 +56,21 @@ async fn named_pipe_roundtrip_uses_bound_endpoint() -> std::io::Result<()> {
         .await
         .expect("accept task timed out")
         .expect("accept task")?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn first_pipe_instance_rejects_second_listener() -> std::io::Result<()> {
+    let endpoint = endpoint_for_label(format!("squat-{}", std::process::id()))?;
+    let _first = LocalListener::bind(&endpoint)?;
+    let second = LocalListener::bind(&endpoint).expect_err("second listener should fail");
+
+    assert!(
+        matches!(
+            second.kind(),
+            ErrorKind::PermissionDenied | ErrorKind::AlreadyExists
+        ) || matches!(second.raw_os_error(), Some(5) | Some(231)),
+        "unexpected bind error: {second:?}"
+    );
     Ok(())
 }

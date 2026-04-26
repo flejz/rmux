@@ -3,11 +3,23 @@
 #[cfg(windows)]
 use std::ffi::OsString;
 use std::io;
+#[cfg(windows)]
+use std::mem::size_of;
 
 use crate::{LocalEndpoint, LocalStream, PeerIdentity};
+#[cfg(windows)]
+use rmux_os::identity::{IdentityResolver, UserIdentity};
 
 #[cfg(windows)]
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::LocalFree;
+#[cfg(windows)]
+use windows_sys::Win32::Security::Authorization::{
+    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION,
+};
+#[cfg(windows)]
+use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
 
 /// Local IPC listener.
 #[cfg(unix)]
@@ -83,5 +95,74 @@ async fn accept_impl(listener: &LocalListener) -> io::Result<(LocalStream, PeerI
 fn create_server(pipe_name: &OsString, first_instance: bool) -> io::Result<NamedPipeServer> {
     let mut options = ServerOptions::new();
     options.first_pipe_instance(first_instance);
-    options.create(pipe_name)
+    let mut security = SameUserSecurityAttributes::new()?;
+    // SAFETY: SECURITY_ATTRIBUTES points at a live self-owned security descriptor
+    // for the duration of CreateNamedPipeW inside Tokio.
+    unsafe { options.create_with_security_attributes_raw(pipe_name, security.as_mut_ptr()) }
+}
+
+#[cfg(windows)]
+struct SameUserSecurityAttributes {
+    descriptor: PSECURITY_DESCRIPTOR,
+    attributes: SECURITY_ATTRIBUTES,
+}
+
+#[cfg(windows)]
+impl SameUserSecurityAttributes {
+    fn new() -> io::Result<Self> {
+        let sid = match IdentityResolver::current()? {
+            UserIdentity::Sid(sid) => sid,
+            UserIdentity::Uid(_) => {
+                return Err(io::Error::other(
+                    "windows identity resolver returned a unix uid",
+                ));
+            }
+        };
+        let sddl = wide_null(&format!("D:P(A;;GA;;;{sid})"));
+        let mut descriptor = std::ptr::null_mut();
+
+        // SAFETY: sddl is null-terminated UTF-16 and descriptor is an out pointer
+        // owned by the caller on success and released with LocalFree.
+        let ok = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl.as_ptr(),
+                SDDL_REVISION,
+                &mut descriptor,
+                std::ptr::null_mut(),
+            )
+        };
+        if ok == 0 {
+            return Err(io::Error::last_os_error());
+        }
+
+        Ok(Self {
+            descriptor,
+            attributes: SECURITY_ATTRIBUTES {
+                nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: descriptor.cast(),
+                bInheritHandle: 0,
+            },
+        })
+    }
+
+    fn as_mut_ptr(&mut self) -> *mut core::ffi::c_void {
+        (&mut self.attributes as *mut SECURITY_ATTRIBUTES).cast()
+    }
+}
+
+#[cfg(windows)]
+impl Drop for SameUserSecurityAttributes {
+    fn drop(&mut self) {
+        if !self.descriptor.is_null() {
+            // SAFETY: descriptor came from ConvertStringSecurityDescriptorToSecurityDescriptorW.
+            unsafe {
+                LocalFree(self.descriptor.cast());
+            }
+        }
+    }
+}
+
+#[cfg(windows)]
+fn wide_null(value: &str) -> Vec<u16> {
+    value.encode_utf16().chain(std::iter::once(0)).collect()
 }
