@@ -43,7 +43,7 @@ pub(crate) use pane_outputs::PaneExitMetadata;
 use pane_outputs::{AttachedSubmittedLine, RemovedPaneOutputs};
 use pane_pipe::{ActivePanePipe, PanePipeStore};
 use pane_terminal_store::PaneTerminalStore;
-pub(crate) use pane_transcripts::{PaneCaptureRequest, PaneScreenState};
+pub(crate) use pane_transcripts::PaneCaptureRequest;
 use window_links::{WindowLinkGroup, WindowLinkSlot};
 
 #[derive(Clone)]

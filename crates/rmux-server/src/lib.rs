@@ -32,10 +32,14 @@ mod keys;
 mod listener;
 #[cfg(unix)]
 mod mouse;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
+#[cfg_attr(windows, allow(dead_code))]
 mod outer_terminal;
 #[cfg(unix)]
 mod pane_io;
+#[cfg(any(unix, windows))]
+#[cfg_attr(windows, allow(dead_code))]
+mod pane_screen_state;
 #[cfg(unix)]
 mod pane_terminal_lookup;
 #[cfg(unix)]

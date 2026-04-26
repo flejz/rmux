@@ -1,5 +1,5 @@
 use super::{CursorScope, OuterTerminal, OuterTerminalContext};
-use crate::pane_terminals::PaneScreenState;
+use crate::pane_screen_state::PaneScreenState;
 use rmux_core::{OptionStore, Session};
 use rmux_proto::{OptionName, ScopeSelector, SessionName, SetOptionMode, TerminalSize};
 

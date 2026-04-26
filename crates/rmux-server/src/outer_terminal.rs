@@ -8,7 +8,7 @@ use rmux_core::{
 use rmux_core::{COLOUR_DEFAULT, COLOUR_FLAG_256, COLOUR_NONE, COLOUR_TERMINAL};
 use rmux_proto::{ClientTerminalContext, OptionName};
 
-use crate::pane_terminals::PaneScreenState;
+use crate::pane_screen_state::PaneScreenState;
 
 mod capabilities;
 mod colours;

@@ -1,6 +1,7 @@
 use rmux_core::{input::mode, GridRenderOptions, PaneId, ScreenCaptureRange, Utf8Config};
 use rmux_proto::{OptionName, PaneTarget, RmuxError, ScopeSelector, SessionName};
 
+use crate::pane_screen_state::PaneScreenState;
 use crate::pane_terminal_lookup::{missing_pane_terminal, pane_id_for_target};
 use crate::pane_transcript::SharedPaneTranscript;
 
@@ -11,15 +12,6 @@ pub(crate) struct PaneHistoryStats {
     pub(crate) limit: usize,
     pub(crate) size: usize,
     pub(crate) bytes: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PaneScreenState {
-    pub(crate) mode: u32,
-    pub(crate) alternate_on: bool,
-    pub(crate) title: String,
-    pub(crate) path: String,
-    pub(crate) cursor_style: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
