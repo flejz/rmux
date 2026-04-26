@@ -2,7 +2,7 @@ use std::io;
 use std::os::windows::io::{AsRawHandle, OwnedHandle};
 use std::sync::Mutex;
 
-use windows_sys::Win32::Foundation::{GetLastError, E_HANDLE, ERROR_BROKEN_PIPE, HANDLE, S_OK};
+use windows_sys::Win32::Foundation::{GetLastError, ERROR_BROKEN_PIPE, E_HANDLE, HANDLE, S_OK};
 use windows_sys::Win32::System::Console::{
     ClosePseudoConsole, CreatePseudoConsole, ResizePseudoConsole, COORD, HPCON,
 };

@@ -41,6 +41,9 @@ rmux-pty = { path = "crates/rmux-pty" }
 rmux-proto = { path = "crates/rmux-proto" }
 rustix = { version = "1.1.4", features = ["event", "termios"] }
 
+[build-dependencies]
+embed-manifest = "1.5.0"
+
 [[bin]]
 name = "rmux"
 path = "src/main.rs"

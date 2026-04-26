@@ -128,12 +128,8 @@ async fn run_tokio_named_pipe(args: Args) -> io::Result<()> {
 async fn run_blocking_anonymous_pipe(args: Args) -> io::Result<()> {
     let before_handles = current_process_handle_count()?;
     let started = Instant::now();
-    let mut conpty = BlockingAnonymousPipeConpty::spawn(
-        args.cols,
-        args.rows,
-        args.lines,
-        args.payload_bytes,
-    )?;
+    let mut conpty =
+        BlockingAnonymousPipeConpty::spawn(args.cols, args.rows, args.lines, args.payload_bytes)?;
     let launch_elapsed = started.elapsed();
 
     let read_started = Instant::now();
@@ -196,8 +192,7 @@ fn run_plain_startupinfoex(args: Args) -> io::Result<()> {
 fn run_process_control(mode: &str, args: Args, extended_startup: bool) -> io::Result<()> {
     let before_handles = current_process_handle_count()?;
     let started = Instant::now();
-    let (process, _thread) =
-        spawn_cmd_control(args.lines, args.payload_bytes, extended_startup)?;
+    let (process, _thread) = spawn_cmd_control(args.lines, args.payload_bytes, extended_startup)?;
     let launch_elapsed = started.elapsed();
     let status = wait_for_process(&process)?;
     drop(process);
@@ -338,12 +333,7 @@ struct BlockingAnonymousPipeConpty {
 
 #[cfg(windows)]
 impl BlockingAnonymousPipeConpty {
-    fn spawn(
-        cols: i16,
-        rows: i16,
-        lines: u32,
-        payload_bytes: Option<usize>,
-    ) -> io::Result<Self> {
+    fn spawn(cols: i16, rows: i16, lines: u32, payload_bytes: Option<usize>) -> io::Result<Self> {
         let input = anonymous_blocking_pipe()?;
         let output = anonymous_blocking_pipe()?;
         let hpc = OwnedHpcon::create(
@@ -687,10 +677,7 @@ fn emit_payload(bytes: usize) -> io::Result<()> {
 }
 
 #[cfg(windows)]
-fn child_command(
-    lines: u32,
-    payload_bytes: Option<usize>,
-) -> io::Result<(Vec<u16>, Vec<u16>)> {
+fn child_command(lines: u32, payload_bytes: Option<usize>) -> io::Result<(Vec<u16>, Vec<u16>)> {
     if let Some(bytes) = payload_bytes {
         let exe = std::env::current_exe()?;
         let exe = exe.into_os_string();

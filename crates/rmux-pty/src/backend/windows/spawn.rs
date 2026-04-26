@@ -10,20 +10,19 @@ use std::ptr::{null, null_mut};
 use std::sync::Arc;
 
 use windows_sys::Win32::Foundation::{
-    GetLastError, HANDLE, ERROR_ACCESS_DENIED, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    GetLastError, ERROR_ACCESS_DENIED, HANDLE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, SetInformationJobObject, TerminateJobObject,
-    JobObjectExtendedLimitInformation, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+    SetInformationJobObject, TerminateJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 use windows_sys::Win32::System::Threading::{
     CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
     InitializeProcThreadAttributeList, ResumeThread, TerminateProcess, UpdateProcThreadAttribute,
-    WaitForSingleObject, CREATE_BREAKAWAY_FROM_JOB, CREATE_SUSPENDED,
-    CREATE_UNICODE_ENVIRONMENT, EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST,
-    PROCESS_INFORMATION, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTF_USESTDHANDLES,
-    STARTUPINFOEXW, STARTUPINFOW,
+    WaitForSingleObject, CREATE_BREAKAWAY_FROM_JOB, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
+    EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_INFORMATION,
+    PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, STARTF_USESTDHANDLES, STARTUPINFOEXW, STARTUPINFOW,
 };
 
 use crate::{ChildCommand, ProcessId, Result, Signal};
@@ -102,7 +101,10 @@ fn create_suspended_process(
     let application = wide_null(command.program.as_os_str());
     let mut command_line = command_line(command);
     let mut environment = environment_block(command);
-    let current_dir = command.current_dir.as_ref().map(|path| wide_null(path.as_os_str()));
+    let current_dir = command
+        .current_dir
+        .as_ref()
+        .map(|path| wide_null(path.as_os_str()));
     let mut process_info = PROCESS_INFORMATION::default();
 
     let created = unsafe {
