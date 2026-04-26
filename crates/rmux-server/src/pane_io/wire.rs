@@ -1,10 +1,10 @@
 use std::future::pending;
 use std::io;
 
+use rmux_ipc::LocalStream;
 use rmux_proto::{encode_attach_message, AttachFrameDecoder, AttachMessage};
 use rmux_pty::{PtyIo, PtyMaster};
 use tokio::io::unix::AsyncFd;
-use tokio::net::UnixStream;
 use tokio::sync::broadcast;
 use tracing::warn;
 
@@ -43,7 +43,7 @@ pub(super) fn open_pane_writer(pane_master: PtyMaster) -> io::Result<AsyncFd<Pty
 }
 
 pub(super) async fn emit_render_frame(
-    stream: &UnixStream,
+    stream: &LocalStream,
     outer_terminal: &OuterTerminal,
     render_frame: &[u8],
 ) -> io::Result<()> {
@@ -52,7 +52,7 @@ pub(super) async fn emit_render_frame(
 }
 
 pub(super) async fn read_socket_bytes(
-    stream: &UnixStream,
+    stream: &LocalStream,
     decoder: &mut AttachFrameDecoder,
     buffer: &mut [u8],
 ) -> io::Result<bool> {
@@ -77,7 +77,7 @@ pub(super) enum TrySocketRead {
 }
 
 pub(super) fn try_read_socket_bytes(
-    stream: &UnixStream,
+    stream: &LocalStream,
     decoder: &mut AttachFrameDecoder,
     buffer: &mut [u8],
 ) -> io::Result<TrySocketRead> {
@@ -93,7 +93,7 @@ pub(super) fn try_read_socket_bytes(
 }
 
 pub(super) async fn emit_attach_message(
-    stream: &UnixStream,
+    stream: &LocalStream,
     message: &AttachMessage,
 ) -> io::Result<()> {
     let frame = encode_attach_message(message).map_err(io::Error::other)?;
@@ -101,7 +101,7 @@ pub(super) async fn emit_attach_message(
 }
 
 pub(super) async fn emit_attach_frame(
-    stream: &UnixStream,
+    stream: &LocalStream,
     message: &AttachMessage,
 ) -> io::Result<()> {
     let frame = encode_attach_message(message).map_err(io::Error::other)?;
@@ -134,13 +134,13 @@ pub(super) async fn recv_pane_output_optional(
     }
 }
 
-pub(super) async fn emit_attach_data_frame(stream: &UnixStream, bytes: &[u8]) -> io::Result<()> {
+pub(super) async fn emit_attach_data_frame(stream: &LocalStream, bytes: &[u8]) -> io::Result<()> {
     let frame =
         encode_attach_message(&AttachMessage::Data(bytes.to_vec())).map_err(io::Error::other)?;
     write_all_to_stream(stream, &frame).await
 }
 
-pub(super) async fn emit_attach_bytes(stream: &UnixStream, bytes: &[u8]) -> io::Result<()> {
+pub(super) async fn emit_attach_bytes(stream: &LocalStream, bytes: &[u8]) -> io::Result<()> {
     if bytes.is_empty() {
         return Ok(());
     }
@@ -149,7 +149,7 @@ pub(super) async fn emit_attach_bytes(stream: &UnixStream, bytes: &[u8]) -> io::
 }
 
 pub(super) async fn emit_attach_stop(
-    stream: &UnixStream,
+    stream: &LocalStream,
     current_target: &OpenAttachTarget,
 ) -> io::Result<()> {
     emit_attach_bytes(
@@ -160,7 +160,7 @@ pub(super) async fn emit_attach_stop(
 }
 
 pub(super) async fn emit_detached_message(
-    stream: &UnixStream,
+    stream: &LocalStream,
     current_target: &OpenAttachTarget,
 ) -> io::Result<()> {
     emit_attach_bytes(
@@ -174,7 +174,7 @@ pub(super) async fn emit_detached_message(
     .await
 }
 
-pub(super) async fn emit_exited_message(stream: &UnixStream) -> io::Result<()> {
+pub(super) async fn emit_exited_message(stream: &LocalStream) -> io::Result<()> {
     emit_attach_bytes(stream, b"[exited]\r\n").await
 }
 
@@ -198,7 +198,7 @@ pub(super) async fn read_from_pane(
     }
 }
 
-async fn write_all_to_stream(stream: &UnixStream, mut bytes: &[u8]) -> io::Result<()> {
+async fn write_all_to_stream(stream: &LocalStream, mut bytes: &[u8]) -> io::Result<()> {
     while !bytes.is_empty() {
         stream.writable().await?;
 

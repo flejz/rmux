@@ -1,3 +1,4 @@
+use rmux_ipc::LocalStream;
 use rmux_proto::{AttachFrameDecoder, AttachMessage};
 use rmux_pty::PtyIo;
 use std::collections::VecDeque;
@@ -5,7 +6,6 @@ use std::io;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::unix::AsyncFd;
-use tokio::net::UnixStream;
 use tokio::sync::{mpsc, watch};
 
 const READ_BUFFER_SIZE: usize = 8192;
@@ -43,7 +43,7 @@ use wire::{
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn forward_attach(
-    stream: UnixStream,
+    stream: LocalStream,
     target: AttachTarget,
     initial_socket_bytes: Vec<u8>,
     mut shutdown: watch::Receiver<()>,
@@ -386,7 +386,7 @@ pub(crate) async fn forward_attach(
 
 async fn process_socket_messages(
     decoder: &mut AttachFrameDecoder,
-    stream: &UnixStream,
+    stream: &LocalStream,
     _pane_writer: &AsyncFd<PtyIo>,
     live_input: &LiveAttachInputContext,
     pending_input: &mut Vec<u8>,
