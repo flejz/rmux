@@ -59,7 +59,8 @@ mod pane_terminal_lookup;
 mod pane_terminal_process;
 #[cfg(unix)]
 mod pane_terminals;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
+#[cfg_attr(windows, allow(dead_code))]
 mod pane_transcript;
 #[cfg(unix)]
 mod renderer;
