@@ -26,9 +26,11 @@ mod format_runtime;
 mod handler;
 #[cfg(unix)]
 mod handler_support;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
+#[cfg_attr(windows, allow(dead_code))]
 mod hook_compat;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
+#[cfg_attr(windows, allow(dead_code))]
 mod hook_runtime;
 #[cfg(any(unix, windows))]
 mod input_keys;
