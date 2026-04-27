@@ -138,21 +138,46 @@ pub(crate) async fn forward_attach(
                 let _ = emit_attach_stop(&stream, &current_target).await;
                 return Ok(());
             }
-            loop {
-                match try_read_socket_bytes(&stream, &mut decoder, &mut socket_read_buffer)? {
-                    TrySocketRead::Read => {}
-                    TrySocketRead::Closed => return Ok(()),
-                    TrySocketRead::WouldBlock => break,
-                }
-            }
-            process_socket_messages(
-                &mut decoder,
+            match apply_pending_attach_controls(
+                &mut deferred_controls,
+                attach_controls.as_mut(),
+                &mut current_target,
                 &stream,
-                &live_input,
-                &mut pending_input,
+                &mut render_generation,
+                &mut overlay_generation,
+                &mut persistent_overlay,
+                &mut persistent_overlay_visible,
+                &mut persistent_overlay_state_id,
                 &mut locked,
             )
-            .await?;
+            .await?
+            {
+                PendingAttachAction::Exit => {
+                    return Ok(());
+                }
+                PendingAttachAction::Continue => continue,
+                PendingAttachAction::Write => {}
+            }
+            // A pending pane refresh is an ordering barrier: emit the frame
+            // for the transcript that triggered it before forwarding newer
+            // keystrokes to the child process.
+            if !pane_refresh.is_pending() {
+                loop {
+                    match try_read_socket_bytes(&stream, &mut decoder, &mut socket_read_buffer)? {
+                        TrySocketRead::Read => {}
+                        TrySocketRead::Closed => return Ok(()),
+                        TrySocketRead::WouldBlock => break,
+                    }
+                }
+                process_socket_messages(
+                    &mut decoder,
+                    &stream,
+                    &live_input,
+                    &mut pending_input,
+                    &mut locked,
+                )
+                .await?;
+            }
             prime_persistent_overlay_barriers(
                 &mut persistent_overlay_state_id,
                 attach_controls.as_mut(),
@@ -222,25 +247,6 @@ pub(crate) async fn forward_attach(
                                 let _ = emit_attach_stop(&stream, &current_target).await;
                                 return Ok(());
                             }
-                            loop {
-                                match try_read_socket_bytes(
-                                    &stream,
-                                    &mut decoder,
-                                    &mut socket_read_buffer,
-                                )? {
-                                    TrySocketRead::Read => {}
-                                    TrySocketRead::Closed => return Ok(()),
-                                    TrySocketRead::WouldBlock => break,
-                                }
-                            }
-                            process_socket_messages(
-                                &mut decoder,
-                                &stream,
-                                &live_input,
-                                &mut pending_input,
-                                &mut locked,
-                            )
-                            .await?;
                             let session_name = current_target.session_name.clone();
                             live_input
                                 .handler
@@ -451,25 +457,6 @@ pub(crate) async fn forward_attach(
                                 let _ = emit_attach_stop(&stream, &current_target).await;
                                 return Ok(());
                             }
-                            loop {
-                                match try_read_socket_bytes(
-                                    &stream,
-                                    &mut decoder,
-                                    &mut socket_read_buffer,
-                                )? {
-                                    TrySocketRead::Read => {}
-                                    TrySocketRead::Closed => return Ok(()),
-                                    TrySocketRead::WouldBlock => break,
-                                }
-                            }
-                            process_socket_messages(
-                                &mut decoder,
-                                &stream,
-                                &live_input,
-                                &mut pending_input,
-                                &mut locked,
-                            )
-                            .await?;
                             pane_refresh.schedule_now();
                         }
                     }

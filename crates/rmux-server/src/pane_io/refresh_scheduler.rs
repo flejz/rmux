@@ -34,6 +34,10 @@ impl AttachRefreshScheduler {
         self.deadline
     }
 
+    pub(super) fn is_pending(&self) -> bool {
+        self.deadline.is_some()
+    }
+
     pub(super) fn clear(&mut self) {
         self.deadline = None;
     }
@@ -56,7 +60,9 @@ mod tests {
         scheduler.schedule(second);
 
         assert_eq!(scheduler.deadline(), Some(first_deadline));
+        assert!(scheduler.is_pending());
         scheduler.clear();
+        assert!(!scheduler.is_pending());
         scheduler.schedule(second);
         assert_ne!(scheduler.deadline(), Some(first_deadline));
     }
