@@ -25,7 +25,8 @@ mod daemon;
 #[cfg(any(unix, windows))]
 #[cfg_attr(windows, allow(dead_code))]
 mod format_runtime;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
+#[cfg_attr(windows, allow(dead_code))]
 mod handler;
 #[cfg(any(unix, windows))]
 #[cfg_attr(windows, allow(dead_code))]

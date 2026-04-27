@@ -1,4 +1,5 @@
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -76,9 +77,12 @@ fn write_config(path: &Path, contents: &str) {
 
 fn write_executable_script(path: &Path, contents: &str) {
     write_config(path, contents);
-    let mut permissions = fs::metadata(path).expect("script metadata").permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(path, permissions).expect("script permissions");
+    #[cfg(unix)]
+    {
+        let mut permissions = fs::metadata(path).expect("script metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(path, permissions).expect("script permissions");
+    }
 }
 
 fn shell_quote(path: &Path) -> String {
