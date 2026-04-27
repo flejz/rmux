@@ -74,20 +74,18 @@ async fn accept_impl(listener: &LocalListener) -> io::Result<(LocalStream, PeerI
 
 #[cfg(windows)]
 async fn accept_impl(listener: &LocalListener) -> io::Result<(LocalStream, PeerIdentity)> {
-    let server = {
-        let mut pending = listener.pending.lock().await;
-        pending
-            .take()
-            .ok_or_else(|| io::Error::other("named-pipe accept already in progress"))?
-    };
+    let mut pending = listener.pending.lock().await;
+    let server = pending
+        .as_ref()
+        .ok_or_else(|| io::Error::other("named-pipe accept already in progress"))?;
 
     server.connect().await?;
+    let server = pending
+        .take()
+        .ok_or_else(|| io::Error::other("connected named pipe was not retained"))?;
     let peer = PeerIdentity::from_windows_pipe(&server);
     let next = create_server(&listener.pipe_name, false)?;
-    {
-        let mut pending = listener.pending.lock().await;
-        *pending = Some(next);
-    }
+    *pending = Some(next);
 
     Ok((server, peer?))
 }

@@ -15,10 +15,9 @@ use tracing::debug;
 
 use rmux_ipc::{LocalEndpoint, LocalListener};
 
-#[cfg(unix)]
 use crate::listener;
 #[cfg(windows)]
-use crate::windows_runtime;
+use crate::server_access::current_owner_uid;
 
 #[cfg(all(test, unix))]
 const FALLBACK_SOCKET_ROOT: &str = "/tmp";
@@ -235,11 +234,15 @@ impl ServerDaemon {
             let listener = LocalListener::bind(&endpoint)?;
             let (shutdown_handle, shutdown_receiver) = ShutdownHandle::new();
             let socket_path = self.config.socket_path().to_path_buf();
+            let owner_uid = current_owner_uid();
 
-            let task = tokio::spawn(windows_runtime::serve(
+            let task = tokio::spawn(listener::serve(
                 listener,
+                socket_path.clone(),
                 shutdown_handle.clone(),
                 shutdown_receiver,
+                self.config.config_load().clone(),
+                owner_uid,
             ));
 
             Ok(ServerHandle {
@@ -603,7 +606,7 @@ mod tests {
     static UNIQUE_ID: AtomicUsize = AtomicUsize::new(0);
 
     #[tokio::test]
-    async fn windows_daemon_accepts_ipc_and_reports_runtime_unsupported() -> io::Result<()> {
+    async fn windows_daemon_accepts_ipc_and_dispatches_runtime_requests() -> io::Result<()> {
         let endpoint = unique_endpoint()?;
         let socket_path = endpoint.clone().into_path();
         let handle = ServerDaemon::new(DaemonConfig::new(socket_path.clone()))
@@ -620,12 +623,7 @@ mod tests {
         .await
         .map_err(io::Error::other)??;
 
-        assert!(matches!(
-            response,
-            Response::Error(ErrorResponse {
-                error: RmuxError::Server(message)
-            }) if message.contains("Windows IPC")
-        ));
+        assert!(matches!(response, Response::LockServer(_)));
         assert_eq!(handle.socket_path(), socket_path.as_path());
         handle.shutdown().await
     }
@@ -741,15 +739,13 @@ mod tests {
         for response in responses {
             match response {
                 Response::ListSessions(response) => assert!(response.output.stdout().is_empty()),
-                Response::ListWindows(response) => {
-                    assert!(response.windows.is_empty());
-                    assert!(response.output.stdout().is_empty());
-                }
-                Response::ListPanes(response) => assert!(response.output.stdout().is_empty()),
                 Response::ListClients(response) => {
                     assert_eq!(response.match_count, 0);
                     assert!(response.output.stdout().is_empty());
                 }
+                Response::Error(ErrorResponse {
+                    error: RmuxError::SessionNotFound(name),
+                }) => assert_eq!(name, "alpha"),
                 other => panic!("unexpected response: {other:?}"),
             }
         }
