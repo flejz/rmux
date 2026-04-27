@@ -634,6 +634,70 @@ async fn set_buffer_clipboard_write_uses_attached_terminal_features() {
 }
 
 #[tokio::test]
+async fn clipboard_writes_require_explicit_buffer_command_flag() {
+    let handler = RequestHandler::new();
+    let session = session_name("alpha");
+    create_session(&handler, "alpha").await;
+
+    assert!(matches!(
+        handler
+            .handle(Request::SetOption(SetOptionRequest {
+                scope: ScopeSelector::Global,
+                option: OptionName::SetClipboard,
+                value: "external".to_owned(),
+                mode: SetOptionMode::Replace,
+            }))
+            .await,
+        Response::SetOption(_)
+    ));
+
+    let (control_tx, mut control_rx) = tokio::sync::mpsc::unbounded_channel();
+    handler
+        .register_attach_with_terminal_context(
+            41,
+            session,
+            control_tx,
+            OuterTerminalContext::from_pairs(&[("TERM", "xterm-256color")]),
+        )
+        .await;
+
+    let response = handler
+        .dispatch(41, Request::SetBuffer(set_buffer_request(None, b"private")))
+        .await
+        .response;
+    assert!(matches!(response, Response::SetBuffer(_)));
+    assert!(
+        control_rx.try_recv().is_err(),
+        "set-buffer must not write OSC52 unless -w/set_clipboard is requested"
+    );
+
+    let temp_path = std::env::temp_dir().join(format!(
+        "rmux-load-buffer-no-clipboard-{}-{}.txt",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time after epoch")
+            .as_nanos()
+    ));
+    fs::write(&temp_path, b"loaded private").expect("write test buffer");
+    let response = handler
+        .dispatch(
+            41,
+            Request::LoadBuffer(load_buffer_request(
+                temp_path.to_str().expect("utf8 temp path"),
+            )),
+        )
+        .await
+        .response;
+    let _ = fs::remove_file(&temp_path);
+    assert!(matches!(response, Response::LoadBuffer(_)));
+    assert!(
+        control_rx.try_recv().is_err(),
+        "load-buffer must not write OSC52 unless -w/set_clipboard is requested"
+    );
+}
+
+#[tokio::test]
 async fn set_buffer_clipboard_write_is_suppressed_without_unique_attached_client() {
     let handler = RequestHandler::new();
     let alpha = session_name("alpha");
