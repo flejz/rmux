@@ -1,4 +1,6 @@
+#[cfg(unix)]
 use std::os::fd::BorrowedFd;
+#[cfg(unix)]
 use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::time::Duration;
@@ -39,6 +41,7 @@ impl PaneTerminal {
         self.master.resize(size)
     }
 
+    #[cfg(unix)]
     pub(crate) fn master_fd(&self) -> BorrowedFd<'_> {
         self.master.io().as_fd()
     }
@@ -51,6 +54,7 @@ impl PaneTerminal {
         self.child.pid().as_u32()
     }
 
+    #[cfg(unix)]
     pub(crate) fn tty_path(&self) -> Option<PathBuf> {
         rmux_os::process::fd_path(self.pid(), 0)
     }
