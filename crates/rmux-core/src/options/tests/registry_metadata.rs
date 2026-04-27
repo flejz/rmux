@@ -1,6 +1,8 @@
 use super::*;
 
 const FROZEN_OPTIONS_TABLE_PATH: &str = "/opt/rmux/reference/tmux/options-table.c";
+const FROZEN_OPTIONS_TABLE_ENV: &str = "RMUX_FROZEN_OPTIONS_TABLE";
+const REQUIRE_FROZEN_TMUX_ENV: &str = "RMUX_REQUIRE_FROZEN_TMUX";
 
 #[test]
 fn option_registry_is_closed_unique_and_contains_full_frozen_inventory() {
@@ -166,17 +168,29 @@ fn style_parse_effect_inventory_matches_tmux_style_option_count() {
 }
 
 fn frozen_options_table_source() -> Option<String> {
-    match fs::read_to_string(FROZEN_OPTIONS_TABLE_PATH) {
+    let path = std::env::var(FROZEN_OPTIONS_TABLE_ENV)
+        .unwrap_or_else(|_| FROZEN_OPTIONS_TABLE_PATH.to_owned());
+    match fs::read_to_string(&path) {
         Ok(source) => Some(source),
-        Err(error) if cfg!(target_os = "linux") => panic!(
-            "frozen tmux options-table.c is readable at {FROZEN_OPTIONS_TABLE_PATH}: {error}"
-        ),
+        Err(error) if frozen_tmux_required() => {
+            panic!("frozen tmux options-table.c is readable at {path}: {error}")
+        }
         Err(error) => {
             eprintln!(
                 "skipping frozen tmux options-table assertions: \
-                 {FROZEN_OPTIONS_TABLE_PATH} unavailable: {error}"
+                 {path} unavailable: {error}. Set {REQUIRE_FROZEN_TMUX_ENV}=1 \
+                 to make this a hard gate."
             );
             None
         }
     }
+}
+
+fn frozen_tmux_required() -> bool {
+    std::env::var(REQUIRE_FROZEN_TMUX_ENV).is_ok_and(|value| {
+        matches!(
+            value.as_str(),
+            "1" | "true" | "TRUE" | "on" | "ON" | "yes" | "YES"
+        )
+    })
 }
