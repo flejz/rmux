@@ -12,6 +12,10 @@ use tokio::time::sleep;
 use super::RequestHandler;
 
 static UNIQUE_ID: AtomicUsize = AtomicUsize::new(0);
+#[cfg(windows)]
+const WINDOWS_CAPTURE_POLL_ATTEMPTS: usize = 500;
+#[cfg(windows)]
+const WINDOWS_CAPTURE_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 pub(in crate::handler) struct PaneInputCapture {
     output_path: PathBuf,
@@ -339,10 +343,10 @@ while ($offset -lt $ByteCount) {
 "#;
 
 async fn wait_for_file_bytes(path: &Path, expected: &[u8]) -> Result<(), io::Error> {
-    for _ in 0..100 {
+    for _ in 0..capture_poll_attempts() {
         match fs::read(path) {
             Ok(contents) if contents == expected => return Ok(()),
-            Ok(_) | Err(_) => sleep(Duration::from_millis(20)).await,
+            Ok(_) | Err(_) => sleep(capture_poll_interval()).await,
         }
     }
 
@@ -368,15 +372,37 @@ fn hex_dump(bytes: &[u8]) -> String {
 }
 
 async fn wait_for_file_to_exist(path: &Path) -> Result<(), io::Error> {
-    for _ in 0..100 {
+    for _ in 0..capture_poll_attempts() {
         if path.exists() {
             return Ok(());
         }
-        sleep(Duration::from_millis(20)).await;
+        sleep(capture_poll_interval()).await;
     }
 
     Err(io::Error::other(format!(
         "file '{}' was not created",
         path.display()
     )))
+}
+
+fn capture_poll_attempts() -> usize {
+    #[cfg(windows)]
+    {
+        WINDOWS_CAPTURE_POLL_ATTEMPTS
+    }
+    #[cfg(not(windows))]
+    {
+        100
+    }
+}
+
+fn capture_poll_interval() -> Duration {
+    #[cfg(windows)]
+    {
+        WINDOWS_CAPTURE_POLL_INTERVAL
+    }
+    #[cfg(not(windows))]
+    {
+        Duration::from_millis(20)
+    }
 }
