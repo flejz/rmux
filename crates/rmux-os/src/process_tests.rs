@@ -16,7 +16,6 @@ fn current_process_is_live() {
     assert!(is_live(std::process::id()));
 }
 
-#[cfg(unix)]
 #[test]
 fn current_process_path_is_available() {
     let path = current_path(std::process::id()).expect("current process cwd should be visible");
@@ -30,7 +29,6 @@ fn current_process_command_name_is_available() {
 }
 
 #[test]
-#[cfg(unix)]
 fn current_process_environment_is_available() {
     let environment =
         environment(std::process::id()).expect("current process environment should be visible");
@@ -61,17 +59,6 @@ fn windows_reports_exited_process_as_dead_even_with_exit_code_259() {
 
 #[cfg(windows)]
 #[test]
-fn windows_reports_unavailable_environment_as_ok_none() {
-    assert_eq!(
-        ProcessInspector
-            .environment(std::process::id())
-            .expect("environment query should not fail"),
-        None
-    );
-}
-
-#[cfg(windows)]
-#[test]
 fn windows_reports_unavailable_fd_path_as_ok_none() {
     assert_eq!(
         ProcessInspector
@@ -79,6 +66,80 @@ fn windows_reports_unavailable_fd_path_as_ok_none() {
             .expect("fd path query should not fail"),
         None
     );
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_child_environment_is_visible() {
+    let mut child = std::process::Command::new("cmd.exe")
+        .args(["/C", "ping -n 6 127.0.0.1 >NUL"])
+        .env("RMUX_OS_ENV_SMOKE", "visible")
+        .spawn()
+        .expect("spawn environment helper");
+    let pid = child.id();
+
+    for _ in 0..40 {
+        let environment = ProcessInspector
+            .environment(pid)
+            .expect("environment query should not fail");
+        if environment
+            .as_ref()
+            .and_then(|values| values.get("RMUX_OS_ENV_SMOKE"))
+            .is_some_and(|value| value == "visible")
+        {
+            child.kill().ok();
+            child.wait().ok();
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    child.kill().ok();
+    child.wait().ok();
+    panic!("child environment did not become visible");
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_child_current_path_is_visible() {
+    let expected = std::env::current_dir()
+        .expect("current dir")
+        .to_string_lossy()
+        .into_owned();
+    let mut child = std::process::Command::new("cmd.exe")
+        .args(["/C", "ping -n 6 127.0.0.1 >NUL"])
+        .spawn()
+        .expect("spawn cwd helper");
+    let pid = child.id();
+
+    for _ in 0..40 {
+        let path = ProcessInspector
+            .current_path(pid)
+            .expect("current path query should not fail");
+        if path
+            .as_deref()
+            .is_some_and(|path| windows_paths_match(path, &expected))
+        {
+            child.kill().ok();
+            child.wait().ok();
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+
+    child.kill().ok();
+    child.wait().ok();
+    panic!("child cwd did not become visible");
+}
+
+#[cfg(windows)]
+fn windows_paths_match(actual: &str, expected: &str) -> bool {
+    fn normalize(path: &str) -> String {
+        path.replace('/', "\\")
+            .trim_end_matches('\\')
+            .to_ascii_lowercase()
+    }
+    normalize(actual) == normalize(expected)
 }
 
 #[test]

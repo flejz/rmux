@@ -11,6 +11,10 @@ use std::path::{Path, PathBuf};
 #[cfg(unix)]
 use rustix::termios::tcgetpgrp;
 
+#[cfg(windows)]
+#[path = "process_windows.rs"]
+mod windows_process;
+
 /// Inspect process metadata for the current platform.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ProcessInspector;
@@ -288,113 +292,28 @@ fn environment_impl(pid: u32) -> io::Result<Option<HashMap<String, String>>> {
 }
 
 #[cfg(windows)]
-fn current_path_impl(_pid: u32) -> io::Result<Option<String>> {
-    Ok(None)
+fn current_path_impl(pid: u32) -> io::Result<Option<String>> {
+    windows_process::current_path(pid)
 }
 
 #[cfg(windows)]
 fn command_name_impl(pid: u32) -> io::Result<Option<String>> {
-    windows_command_name(pid)
+    windows_process::command_name(pid)
 }
 
 #[cfg(windows)]
-fn fd_path_impl(_pid: u32, _fd: i32) -> io::Result<Option<PathBuf>> {
-    Ok(None)
+fn fd_path_impl(pid: u32, fd: i32) -> io::Result<Option<PathBuf>> {
+    windows_process::fd_path(pid, fd)
 }
 
 #[cfg(windows)]
 fn is_live_impl(pid: u32) -> io::Result<Option<bool>> {
-    windows_is_live(pid)
+    windows_process::is_live(pid)
 }
 
 #[cfg(windows)]
-fn environment_impl(_pid: u32) -> io::Result<Option<HashMap<String, String>>> {
-    Ok(None)
-}
-
-#[cfg(windows)]
-fn windows_is_live(pid: u32) -> io::Result<Option<bool>> {
-    use windows_sys::Win32::Foundation::{
-        ERROR_ACCESS_DENIED, ERROR_INVALID_PARAMETER, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
-    };
-    use windows_sys::Win32::Storage::FileSystem::SYNCHRONIZE;
-    use windows_sys::Win32::System::Threading::{OpenProcess, WaitForSingleObject};
-
-    let handle = unsafe {
-        // SAFETY: OpenProcess validates the pid and returns either a handle or null.
-        OpenProcess(SYNCHRONIZE, 0, pid)
-    };
-    if handle.is_null() {
-        let error = io::Error::last_os_error();
-        return match error.raw_os_error() {
-            Some(code) if code == ERROR_INVALID_PARAMETER as i32 => Ok(Some(false)),
-            Some(code) if code == ERROR_ACCESS_DENIED as i32 => Ok(None),
-            _ => Err(error),
-        };
-    }
-    let _guard = WindowsHandle(handle);
-
-    let wait = unsafe {
-        // SAFETY: `handle` is a live process handle and a zero timeout only observes state.
-        WaitForSingleObject(handle, 0)
-    };
-    match wait {
-        WAIT_TIMEOUT => Ok(Some(true)),
-        WAIT_OBJECT_0 => Ok(Some(false)),
-        WAIT_FAILED => Err(io::Error::last_os_error()),
-        _ => Err(io::Error::other("unexpected Windows process wait result")),
-    }
-}
-
-#[cfg(windows)]
-fn windows_command_name(pid: u32) -> io::Result<Option<String>> {
-    use windows_sys::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
-    };
-
-    let handle = unsafe {
-        // SAFETY: OpenProcess validates the pid and returns either a handle or null.
-        OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid)
-    };
-    if handle.is_null() {
-        let error = io::Error::last_os_error();
-        return match error.raw_os_error() {
-            Some(87) => Ok(None),
-            _ => Err(error),
-        };
-    }
-    let _guard = WindowsHandle(handle);
-
-    let mut buffer = vec![0_u16; 32_768];
-    let mut len = u32::try_from(buffer.len()).map_err(|_| io::ErrorKind::InvalidData)?;
-    let ok = unsafe {
-        // SAFETY: `buffer` is writable for `len` UTF-16 code units.
-        QueryFullProcessImageNameW(handle, 0, buffer.as_mut_ptr(), &mut len)
-    };
-    if ok == 0 {
-        return Err(io::Error::last_os_error());
-    }
-    buffer.truncate(usize::try_from(len).map_err(|_| io::ErrorKind::InvalidData)?);
-    let path = String::from_utf16(&buffer).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("invalid process image path: {error}"),
-        )
-    })?;
-    Ok(executable_name(&path))
-}
-
-#[cfg(windows)]
-struct WindowsHandle(windows_sys::Win32::Foundation::HANDLE);
-
-#[cfg(windows)]
-impl Drop for WindowsHandle {
-    fn drop(&mut self) {
-        unsafe {
-            // SAFETY: `self.0` is a handle returned by a successful Win32 call.
-            windows_sys::Win32::Foundation::CloseHandle(self.0);
-        }
-    }
+fn environment_impl(pid: u32) -> io::Result<Option<HashMap<String, String>>> {
+    windows_process::environment(pid)
 }
 
 #[cfg(target_os = "macos")]
