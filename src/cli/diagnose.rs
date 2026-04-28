@@ -375,7 +375,14 @@ fn find_windows_command_on_path(command: &str) -> Option<std::path::PathBuf> {
     let path_value = std::env::var_os("PATH")?;
     std::env::split_paths(&path_value)
         .map(|directory| directory.join(command))
-        .find(|candidate| candidate.is_file())
+        .find(|candidate| candidate.is_file() && is_usable_windows_shell_candidate(candidate))
+}
+
+#[cfg(windows)]
+fn is_usable_windows_shell_candidate(path: &Path) -> bool {
+    !path
+        .components()
+        .any(|component| component.as_os_str().eq_ignore_ascii_case("WindowsApps"))
 }
 
 #[cfg(windows)]

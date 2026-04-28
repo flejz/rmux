@@ -86,3 +86,14 @@ fn detected_shell_reports_the_windows_default_pane_shell() {
 
     std::fs::remove_dir_all(root).expect("remove temp shell dir");
 }
+
+#[cfg(windows)]
+#[test]
+fn windowsapps_shell_candidate_is_not_reported_as_usable() {
+    assert!(!is_usable_windows_shell_candidate(std::path::Path::new(
+        r"C:\Program Files\WindowsApps\Microsoft.PowerShell_7_x64__8wekyb3d8bbwe\pwsh.exe"
+    )));
+    assert!(is_usable_windows_shell_candidate(std::path::Path::new(
+        r"C:\Program Files\PowerShell\7\pwsh.exe"
+    )));
+}
