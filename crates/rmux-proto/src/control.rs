@@ -42,6 +42,12 @@ pub const CONTROL_MAXIMUM_AGE_MS: u64 = 300_000;
 pub const CONTROL_CONTROL_START: &str = "\u{1b}P1000p";
 /// Shutdown suffix for control-control mode.
 pub const CONTROL_CONTROL_END: &str = "\u{1b}\\";
+/// Private in-band marker used by Windows rmux clients to represent stdin EOF.
+///
+/// Windows named pipes do not provide a Unix-style write-half close while the
+/// same client handle keeps reading server output. This marker is consumed by
+/// the rmux server before command parsing and is never emitted as user output.
+pub const CONTROL_STDIN_EOF_MARKER: &str = "\0rmux-control-eof";
 
 /// Detached upgrade request that switches a connection into tmux-compatible
 /// control mode while leaving the underlying RPC framing unchanged.

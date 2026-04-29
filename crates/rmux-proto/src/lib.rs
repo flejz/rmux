@@ -20,7 +20,8 @@ pub use control::{
     format_continue_line, format_exit_line, format_extended_output_line, format_guard_line,
     format_output_line, format_pause_line, octal_escape, ClientTerminalContext, ControlGuardKind,
     ControlMode, ControlModeRequest, ControlModeResponse, CONTROL_BUFFER_HIGH, CONTROL_BUFFER_LOW,
-    CONTROL_CONTROL_END, CONTROL_CONTROL_START, CONTROL_MAXIMUM_AGE_MS, CONTROL_WRITE_MINIMUM,
+    CONTROL_CONTROL_END, CONTROL_CONTROL_START, CONTROL_MAXIMUM_AGE_MS, CONTROL_STDIN_EOF_MARKER,
+    CONTROL_WRITE_MINIMUM,
 };
 pub use envelope::{RMUX_FRAME_MAGIC, RMUX_WIRE_VERSION};
 pub use error::RmuxError;

@@ -7,14 +7,12 @@ use std::thread;
 use rmux_ipc::BlockingLocalStream;
 use rmux_proto::{
     ClientTerminalContext, ControlMode, ControlModeRequest, Request, Response, CONTROL_CONTROL_END,
-    CONTROL_CONTROL_START,
+    CONTROL_CONTROL_START, CONTROL_STDIN_EOF_MARKER,
 };
 #[cfg(windows)]
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 #[cfg(windows)]
 use tokio::sync::mpsc as tokio_mpsc;
-#[cfg(windows)]
-use tokio::time::{self, Duration};
 
 use crate::{
     connection::{read_response_frame_exact, Connection, ControlModeUpgrade, ControlTransition},
@@ -123,8 +121,6 @@ where
 
 #[cfg(windows)]
 const CONTROL_STDIN_QUEUE_CAPACITY: usize = 256;
-#[cfg(windows)]
-const CONTROL_EXIT_DRAIN_TIMEOUT: Duration = Duration::from_millis(250);
 
 #[cfg(windows)]
 fn drive_control_stream<R, W>(
@@ -262,10 +258,7 @@ where
     W: Write,
 {
     let mut completion_tracker = ControlCompletionTracker::default();
-    let mut submitted_commands = initial_commands.len();
-    let mut completed_commands = 0_usize;
     let mut input_closed = false;
-    let mut all_commands_completed = false;
     let (mut reader, mut writer) = tokio::io::split(stream);
     write_async_initial_commands(&mut writer, initial_commands).await?;
     let mut buffer = [0_u8; 8192];
@@ -275,14 +268,14 @@ where
             input = input_rx.recv(), if !input_closed => {
                 match input {
                     Some(bytes) => {
-                        submitted_commands =
-                            submitted_commands.saturating_add(count_complete_control_lines(&bytes));
                         writer.write_all(&bytes).await?;
                     }
                     None => {
+                        writer.write_all(CONTROL_STDIN_EOF_MARKER.as_bytes()).await?;
+                        writer.write_all(b"\n").await?;
                         writer.flush().await?;
+                        writer.shutdown().await?;
                         input_closed = true;
-                        all_commands_completed = completed_commands >= submitted_commands;
                     }
                 }
             }
@@ -292,16 +285,11 @@ where
                     return Ok(());
                 }
                 let observed = completion_tracker.observe(&buffer[..bytes_read]);
-                completed_commands = completed_commands.saturating_add(observed.completed);
                 output.write_all(&buffer[..bytes_read])?;
                 output.flush()?;
                 if observed.exited {
                     return Ok(());
                 }
-                all_commands_completed = input_closed && completed_commands >= submitted_commands;
-            }
-            _ = time::sleep(CONTROL_EXIT_DRAIN_TIMEOUT), if all_commands_completed => {
-                return Ok(());
             }
         }
     }
@@ -320,9 +308,6 @@ impl ControlCompletionTracker {
         let mut observation = ControlOutputObservation::default();
         while let Some(position) = self.pending.iter().position(|byte| *byte == b'\n') {
             let line = self.pending.drain(..=position).collect::<Vec<_>>();
-            if is_control_completion_line(&line) {
-                observation.completed += 1;
-            }
             if is_control_exit_line(&line) {
                 observation.exited = true;
             }
@@ -334,18 +319,7 @@ impl ControlCompletionTracker {
 #[cfg(windows)]
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct ControlOutputObservation {
-    completed: usize,
     exited: bool,
-}
-
-#[cfg(windows)]
-fn count_complete_control_lines(bytes: &[u8]) -> usize {
-    bytes.iter().filter(|byte| **byte == b'\n').count()
-}
-
-#[cfg(windows)]
-fn is_control_completion_line(line: &[u8]) -> bool {
-    line.starts_with(b"%end ") || line.starts_with(b"%error ")
 }
 
 #[cfg(windows)]
@@ -451,12 +425,12 @@ mod tests {
 #[cfg(all(test, windows))]
 mod windows_tests {
     use super::drive_async_control;
+    use rmux_proto::CONTROL_STDIN_EOF_MARKER;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::sync::mpsc as tokio_mpsc;
 
     #[tokio::test]
-    async fn control_input_eof_waits_for_completed_command_without_empty_line(
-    ) -> std::io::Result<()> {
+    async fn control_input_eof_shutdowns_writer_and_waits_for_exit() -> std::io::Result<()> {
         let (client, mut server) = tokio::io::duplex(4096);
         let (input_tx, input_rx) = tokio_mpsc::channel::<Vec<u8>>(1);
         input_tx
@@ -468,20 +442,23 @@ mod windows_tests {
 
         let drive = drive_async_control(client, &[], input_rx, &mut output);
         let server_peer = async {
+            let expected_input = format!("list-sessions\n{CONTROL_STDIN_EOF_MARKER}\n");
             let mut received = Vec::new();
             let mut buffer = [0_u8; 32];
-            while !received.ends_with(b"\n") {
+            while received.len() < expected_input.len() {
                 let bytes_read = server.read(&mut buffer).await?;
                 assert_ne!(bytes_read, 0, "client closed before sending command");
                 received.extend_from_slice(&buffer[..bytes_read]);
             }
-            assert_eq!(received, b"list-sessions\n");
-            server.write_all(b"%begin 1 1 1\n%end 1 1 1\n").await?;
+            assert_eq!(received, expected_input.as_bytes());
+            server
+                .write_all(b"%begin 1 1 1\n%end 1 1 1\n%exit\n")
+                .await?;
             Ok::<(), std::io::Error>(())
         };
 
         tokio::try_join!(drive, server_peer)?;
-        assert_eq!(output, b"%begin 1 1 1\n%end 1 1 1\n");
+        assert_eq!(output, b"%begin 1 1 1\n%end 1 1 1\n%exit\n");
         Ok(())
     }
 

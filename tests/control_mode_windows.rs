@@ -28,7 +28,7 @@ fn control_control_mode_uses_tmux_text_protocol() -> Result<(), Box<dyn Error>> 
     let input_path = temp_file_path(&label, "in");
     let output_path = temp_file_path(&label, "out");
     let error_path = temp_file_path(&label, "err");
-    fs::write(&input_path, b"list-sessions\nbad-command\n\n")?;
+    fs::write(&input_path, b"list-sessions\nbad-command\n")?;
 
     let mut child = rmux_command()
         .args(["-L", &label, "-CC"])
@@ -57,6 +57,53 @@ fn control_control_mode_uses_tmux_text_protocol() -> Result<(), Box<dyn Error>> 
     assert!(rendered.contains("alpha"));
     assert!(rendered.contains("%exit"));
     assert!(rendered.ends_with(CONTROL_CONTROL_END));
+
+    Ok(())
+}
+
+#[test]
+fn plain_control_mode_exits_after_stdin_eof_without_empty_line() -> Result<(), Box<dyn Error>> {
+    let label = unique_label("plain-control-mode-windows")?;
+    let _server = ServerGuard::new(label.clone());
+
+    assert_status_success(
+        rmux_command()
+            .args(["-L", &label, "new-session", "-d", "-s", "alpha"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()?,
+        "create detached session",
+    )?;
+
+    let input_path = temp_file_path(&label, "in");
+    let output_path = temp_file_path(&label, "out");
+    let error_path = temp_file_path(&label, "err");
+    fs::write(&input_path, b"list-sessions\n")?;
+
+    let mut child = rmux_command()
+        .args(["-L", &label, "-C"])
+        .stdin(Stdio::from(File::open(&input_path)?))
+        .stdout(Stdio::from(File::create(&output_path)?))
+        .stderr(Stdio::from(File::create(&error_path)?))
+        .spawn()?;
+    let status = wait_for_child_exit(&mut child, CONTROL_TIMEOUT)?;
+    let rendered = fs::read_to_string(&output_path)?;
+    let stderr = fs::read_to_string(&error_path)?;
+    let _ = fs::remove_file(&input_path);
+    let _ = fs::remove_file(&output_path);
+    let _ = fs::remove_file(&error_path);
+
+    assert_eq!(status.code(), Some(0));
+    assert!(
+        stderr.is_empty(),
+        "control-mode stderr should stay empty, got: {stderr:?}"
+    );
+    assert!(!rendered.starts_with(CONTROL_CONTROL_START));
+    assert!(rendered.contains("%begin "));
+    assert!(rendered.contains("%end "));
+    assert!(rendered.contains("alpha"));
+    assert!(rendered.contains("%exit"));
 
     Ok(())
 }

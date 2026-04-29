@@ -12,6 +12,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 #[cfg(any(unix, windows))]
 use rmux_ipc::LocalStream;
 use rmux_proto::SessionName;
+#[cfg(windows)]
+use rmux_proto::CONTROL_STDIN_EOF_MARKER;
 #[cfg(any(unix, windows))]
 use rmux_proto::{
     format_exit_line, format_extended_output_line, format_guard_line, format_output_line,
@@ -169,6 +171,13 @@ pub(crate) async fn forward_control(
             let Some(line) = queued_lines.pop_front() else {
                 break;
             };
+            #[cfg(windows)]
+            if line == CONTROL_STDIN_EOF_MARKER {
+                input_closed = true;
+                input_buffer.clear();
+                queued_lines.clear();
+                break;
+            }
             if line.is_empty() {
                 output_queue.enqueue_line(format_exit_line(None).into_bytes(), false);
                 flush_output_queue(&mut output_queue, &mut write_half, flags, &mut paused_panes)
@@ -222,6 +231,12 @@ pub(crate) async fn forward_control(
                     .await?;
                 }
             }
+        }
+        if input_closed && current_command.is_none() && queued_lines.is_empty() {
+            output_queue.enqueue_line(format_exit_line(None).into_bytes(), false);
+            flush_output_queue(&mut output_queue, &mut write_half, flags, &mut paused_panes)
+                .await?;
+            return Ok(());
         }
 
         tokio::select! {
