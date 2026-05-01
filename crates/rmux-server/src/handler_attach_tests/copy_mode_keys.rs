@@ -167,7 +167,7 @@ async fn attached_copy_mode_gets_first_refusal_for_search_and_selection_keys() {
         .expect("copy-mode status"));
 
     handler
-        .handle_attached_live_input_for_test(requester_pid, b"/P0-LINE-12\r \r")
+        .handle_attached_live_input_for_test(requester_pid, b"/P0-LINE-12\r ")
         .await
         .expect("copy-mode attached keys");
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -224,7 +224,7 @@ async fn attached_copy_mode_q_exits_and_refreshes_normal_surface() {
         "1:copy-mode:0:0\n"
     );
     handler
-        .handle_attached_live_input_for_test(requester_pid, b"/P0-LINE-12\r \r")
+        .handle_attached_live_input_for_test(requester_pid, b"/P0-LINE-12\r ")
         .await
         .expect("copy-mode search/select attached keys");
     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
