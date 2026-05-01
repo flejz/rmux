@@ -36,6 +36,18 @@ pub(super) fn attached_copy_mode_input_action(
                     AttachedCopyModeSearchDirection::Backward,
                 );
             }
+            PromptInputEvent::Char('n') => {
+                return AttachedCopyModeInputAction::Command("search-again");
+            }
+            PromptInputEvent::KeyName(name) if name == "n" => {
+                return AttachedCopyModeInputAction::Command("search-again");
+            }
+            PromptInputEvent::Char('N') => {
+                return AttachedCopyModeInputAction::Command("search-reverse");
+            }
+            PromptInputEvent::KeyName(name) if name == "N" => {
+                return AttachedCopyModeInputAction::Command("search-reverse");
+            }
             _ => {}
         }
     }
@@ -88,6 +100,30 @@ mod tests {
         assert_eq!(
             attached_copy_mode_input_action(ModeKeys::Vi, &PromptInputEvent::Char('?')),
             AttachedCopyModeInputAction::Search(AttachedCopyModeSearchDirection::Backward)
+        );
+    }
+
+    #[test]
+    fn vi_search_repeat_keys_route_to_copy_mode_search_commands() {
+        assert_eq!(
+            attached_copy_mode_input_action(ModeKeys::Vi, &PromptInputEvent::Char('n')),
+            AttachedCopyModeInputAction::Command("search-again")
+        );
+        assert_eq!(
+            attached_copy_mode_input_action(ModeKeys::Vi, &PromptInputEvent::Char('N')),
+            AttachedCopyModeInputAction::Command("search-reverse")
+        );
+    }
+
+    #[test]
+    fn emacs_search_repeat_keys_remain_unbound_for_this_slice() {
+        assert_eq!(
+            attached_copy_mode_input_action(ModeKeys::Emacs, &PromptInputEvent::Char('n')),
+            AttachedCopyModeInputAction::Ignore
+        );
+        assert_eq!(
+            attached_copy_mode_input_action(ModeKeys::Emacs, &PromptInputEvent::Char('N')),
+            AttachedCopyModeInputAction::Ignore
         );
     }
 }
