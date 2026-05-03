@@ -9,6 +9,7 @@ use rustix::process::{
 };
 use rustix::termios::{tcgetwinsize, tcsetpgrp, tcsetwinsize};
 
+use super::unix_io;
 use crate::{size, ProcessId, Result, Signal, TerminalSize};
 
 pub(crate) fn open_pty_pair() -> Result<(OwnedFd, OwnedFd)> {
@@ -78,20 +79,11 @@ pub(crate) fn kill_process(pid: ProcessId, signal: Signal) -> Result<()> {
 }
 
 pub(crate) fn read(fd: BorrowedFd<'_>, buffer: &mut [u8]) -> io::Result<usize> {
-    rustix::io::read(fd, buffer).map_err(io::Error::from)
+    unix_io::read(fd, buffer)
 }
 
-pub(crate) fn write_all(fd: BorrowedFd<'_>, mut buffer: &[u8]) -> io::Result<()> {
-    while !buffer.is_empty() {
-        match rustix::io::write(fd, buffer) {
-            Ok(0) => return Err(io::Error::new(io::ErrorKind::WriteZero, "write returned 0")),
-            Ok(bytes_written) => buffer = &buffer[bytes_written..],
-            Err(rustix::io::Errno::INTR) => continue,
-            Err(error) => return Err(error.into()),
-        }
-    }
-
-    Ok(())
+pub(crate) fn write_all(fd: BorrowedFd<'_>, buffer: &[u8]) -> io::Result<()> {
+    unix_io::write_all(fd, buffer)
 }
 
 pub(crate) fn set_nonblocking(fd: BorrowedFd<'_>) -> io::Result<()> {

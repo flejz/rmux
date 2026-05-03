@@ -88,14 +88,14 @@ pub(super) async fn write_bytes_to_target_io(
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(unix, windows))]
 async fn write_pane_bytes(master: PtyMaster, bytes: Vec<u8>) -> std::io::Result<()> {
     tokio::task::spawn_blocking(move || master.write_all(&bytes))
         .await
         .map_err(|error| std::io::Error::other(format!("pane write task failed: {error}")))?
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(unix, windows)))]
 async fn write_pane_bytes(master: PtyMaster, bytes: Vec<u8>) -> std::io::Result<()> {
     master.write_all(&bytes)
 }
@@ -105,7 +105,7 @@ pub(in crate::handler) async fn write_bracketed_pane_payload(
     payload: Vec<u8>,
     bracketed: bool,
 ) -> std::io::Result<()> {
-    #[cfg(windows)]
+    #[cfg(any(unix, windows))]
     {
         tokio::task::spawn_blocking(move || {
             write_bracketed_pane_payload_blocking(&master, &payload, bracketed)
@@ -114,7 +114,7 @@ pub(in crate::handler) async fn write_bracketed_pane_payload(
         .map_err(|error| std::io::Error::other(format!("pane paste task failed: {error}")))?
     }
 
-    #[cfg(not(windows))]
+    #[cfg(not(any(unix, windows)))]
     {
         write_bracketed_pane_payload_blocking(&master, &payload, bracketed)
     }
