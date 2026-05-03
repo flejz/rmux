@@ -343,32 +343,31 @@ async fn display_menu_extended_key_partial_is_bounded_without_pane_leak() {
     );
 
     let oversized = vec![b'9'; DEFAULT_MAX_FRAME_LENGTH - pending_input.len() + 1];
-    handler
+    let err = handler
         .handle_attached_live_input(requester_pid, &mut pending_input, &oversized)
         .await
-        .expect("oversized partial menu extended key reaches the retained cap");
+        .expect_err("oversized partial menu extended key should be bounded");
+    assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+    assert!(err.to_string().contains("menu overlay prompt input"));
     assert!(
-        pending_input.len() <= DEFAULT_MAX_FRAME_LENGTH,
-        "menu prompt input should not retain beyond the configured cap"
+        pending_input.is_empty(),
+        "overflowing menu prompt input should be cleared after rejection"
     );
     assert_eq!(
         capture_pane_print(&handler, target.clone()).await,
         before_capture,
-        "retained oversized menu prompt input must not leak to the pane"
+        "rejected oversized menu prompt input must not leak to the pane"
     );
 
     handler
         .handle_attached_live_input(requester_pid, &mut pending_input, b"9")
         .await
-        .expect("additional oversized menu prompt input remains bounded");
-    assert!(
-        pending_input.len() <= DEFAULT_MAX_FRAME_LENGTH,
-        "additional menu prompt input should still respect the configured cap"
-    );
+        .expect("menu remains usable after partial-input rejection");
+    assert!(pending_input.is_empty());
     assert_eq!(
         capture_pane_print(&handler, target).await,
         before_capture,
-        "additional oversized menu prompt input must not leak to the pane"
+        "post-rejection menu input must not leak to the pane"
     );
 }
 

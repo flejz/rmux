@@ -22,6 +22,7 @@ pub(in crate::handler) fn decode_prompt_input_event(
                 return Some((decode_prompt_key(key), size));
             }
             ExtendedKeyDecode::Partial => return None,
+            ExtendedKeyDecode::Invalid if is_unterminated_extended_key(bytes) => return None,
             ExtendedKeyDecode::Invalid => {}
         }
     }
@@ -56,6 +57,14 @@ pub(in crate::handler) fn decode_prompt_input_event(
 
 pub(super) fn is_extended_key_prefix(bytes: &[u8]) -> bool {
     bytes.starts_with(b"\x1b[") && bytes.get(2).is_some_and(|byte| byte.is_ascii_digit())
+}
+
+fn is_unterminated_extended_key(bytes: &[u8]) -> bool {
+    bytes.len() >= 3
+        && bytes.starts_with(b"\x1b[")
+        && bytes[2..]
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || *byte == b';')
 }
 
 fn decode_prompt_escape_sequence(bytes: &[u8]) -> Option<(PromptInputEvent, usize)> {
@@ -172,6 +181,13 @@ mod tests {
     fn partial_mouse_sequence_returns_none() {
         let bytes = b"\x1b[<0;12;34";
         assert!(decode_prompt_input_event(bytes).is_none());
+    }
+
+    #[test]
+    fn long_unterminated_extended_key_returns_none_for_bound_guard() {
+        let mut bytes = b"\x1b[27;2;65".to_vec();
+        bytes.resize(128, b'9');
+        assert!(decode_prompt_input_event(&bytes).is_none());
     }
 
     #[test]
