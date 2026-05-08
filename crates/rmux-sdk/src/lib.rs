@@ -10,12 +10,13 @@
 //!
 //! `rmux-sdk` is a public integration peer of `rmux-client` and must not
 //! depend on `rmux-client`, `rmux-core`, `rmux-server`, or `rmux-pty` as
-//! normal dependencies. Final typed identifiers (`SessionId`, `WindowId`,
-//! `PaneId`) are owned by `rmux-proto` (Milestone 6) and will be re-exported
-//! from this crate at that point.
+//! normal dependencies. The authoritative identity newtypes
+//! (`SessionName`, `SessionId`, `WindowId`, `PaneId`) live in
+//! `rmux-proto` and are re-exported here so SDK users import them through
+//! `rmux_sdk` without ever depending on those internal crates.
 
 pub mod error;
 pub mod types;
 
 pub use error::{Result, RmuxError};
-pub use types::{RmuxEndpoint, SessionName};
+pub use types::{PaneId, RmuxEndpoint, SessionId, SessionName, WindowId};

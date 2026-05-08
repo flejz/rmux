@@ -50,6 +50,31 @@ fn create_session_inserts_a_new_entry() {
 }
 
 #[test]
+fn explicit_standalone_grouped_session_uses_reserved_session_id() {
+    let mut store = SessionStore::new();
+    for name in ["0", "1", "bob"] {
+        store
+            .create_session(session_name(name), TerminalSize { cols: 80, rows: 24 })
+            .expect("seed session succeeds");
+    }
+
+    let grouped = store
+        .create_grouped_session_with_base_index(
+            session_name("named"),
+            TerminalSize { cols: 80, rows: 24 },
+            0,
+            session_name("stacy"),
+        )
+        .expect("standalone grouped session succeeds");
+
+    let session = store
+        .session(&grouped.session_name)
+        .expect("grouped session exists");
+    assert_eq!(session.id(), 3);
+    assert_eq!(store.next_session_id(), 4);
+}
+
+#[test]
 fn create_session_rejects_duplicates() {
     let mut store = SessionStore::new();
     let name = session_name("alpha");

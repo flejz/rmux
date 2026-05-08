@@ -16,6 +16,7 @@ mod glob;
 mod grid;
 mod hooks;
 mod hyperlinks;
+pub mod identity;
 /// tmux-compatible VT parser state machine, CSI/ESC/OSC dispatch, and SGR.
 pub mod input;
 mod keys;
@@ -44,6 +45,7 @@ pub use hooks::{
     validate_hook_registration, validate_hook_scope, HookBindingView, HookDispatch, HookGlobalRoot,
     HookSetOptions, HookStore,
 };
+pub use identity::{SessionId, WindowId};
 pub use input::{
     colour_join_rgb, Colour, GridAttr, COLOUR_DEFAULT, COLOUR_FLAG_256, COLOUR_FLAG_RGB,
     COLOUR_NONE, COLOUR_TERMINAL,

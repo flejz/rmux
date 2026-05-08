@@ -1,15 +1,15 @@
-//! SDK type vocabulary skeleton.
+//! SDK type vocabulary.
 //!
-//! This module fixes the shapes that downstream SDK steps build on without
-//! taking ownership of identity types. Authoritative typed identifiers
-//! (`SessionId`, `WindowId`, `PaneId`) land in `rmux-proto` in Milestone 6 and
-//! are re-exported here once they exist; until then this skeleton only
-//! re-exports the already-stable [`SessionName`] from `rmux-proto` and
-//! defines the public endpoint vocabulary used by builder/bootstrap code.
+//! Identity newtypes are defined exactly once in `rmux-proto`. This module
+//! re-exports the four authoritative identity types (`SessionName`,
+//! `SessionId`, `WindowId`, `PaneId`) so SDK users never have to depend on
+//! `rmux-core`, `rmux-server`, `rmux-client`, or `rmux-pty` to obtain
+//! them. The SDK does not redeclare these newtypes; `rmux-proto` is the
+//! single public home for the identity vocabulary.
 
 use std::path::PathBuf;
 
-pub use rmux_proto::SessionName;
+pub use rmux_proto::{PaneId, SessionId, SessionName, WindowId};
 
 /// Selects the daemon endpoint resolution strategy used by the SDK.
 ///

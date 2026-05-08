@@ -9,6 +9,7 @@ pub mod control;
 pub mod envelope;
 pub mod error;
 pub mod frame_kind;
+pub mod identity;
 pub mod request;
 pub mod response;
 pub mod types;
@@ -31,6 +32,7 @@ pub use frame_kind::{
     frame_kind_for_request, frame_kind_for_response, ledger_entry_for, FrameDirection,
     FrameFeature, FrameKind, FrameLedgerEntry, FrameStatus, V1_FRAME_LEDGER,
 };
+pub use identity::{PaneId, SessionId, SessionName, WindowId};
 pub use request::*;
 pub use response::*;
 pub use types::OptionScopeSelector;

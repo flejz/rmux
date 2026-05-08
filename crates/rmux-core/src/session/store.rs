@@ -365,7 +365,8 @@ impl SessionStore {
                     window_id,
                 );
                 session.rebind_window_id_allocator(self.next_window_id.clone());
-                session.set_id(self.allocate_session_id());
+                session.set_id(session_id);
+                self.next_session_id = self.next_session_id.max(session_id.saturating_add(1));
                 session.set_group_name(Some(group_name.clone()));
                 let replaced = self.sessions.insert(session_name.clone(), session);
                 debug_assert!(replaced.is_none());
