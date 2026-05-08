@@ -8,6 +8,7 @@ pub mod codec;
 pub mod control;
 pub mod envelope;
 pub mod error;
+pub mod frame_kind;
 pub mod request;
 pub mod response;
 pub mod types;
@@ -26,6 +27,10 @@ pub use control::{
 };
 pub use envelope::{RMUX_FRAME_MAGIC, RMUX_WIRE_VERSION};
 pub use error::RmuxError;
+pub use frame_kind::{
+    frame_kind_for_request, frame_kind_for_response, ledger_entry_for, FrameDirection,
+    FrameFeature, FrameKind, FrameLedgerEntry, FrameStatus, V1_FRAME_LEDGER,
+};
 pub use request::*;
 pub use response::*;
 pub use types::OptionScopeSelector;
