@@ -28,6 +28,7 @@ mod session;
 pub mod style;
 mod target;
 mod target_find;
+mod terminal;
 mod terminal_sequences;
 mod transcript;
 mod utf8;
