@@ -544,6 +544,7 @@ version = "0.0.4"
 dependencies = [
  "bincode",
  "crossterm",
+ "rmux-ipc",
  "rmux-proto",
  "serde",
  "serde_json",

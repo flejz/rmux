@@ -14,6 +14,7 @@
 //! `rmux-proto` and are re-exported here so SDK users import them through
 //! `rmux_sdk` without ever depending on those internal crates.
 
+pub mod bootstrap;
 pub mod command;
 pub mod error;
 pub mod events;

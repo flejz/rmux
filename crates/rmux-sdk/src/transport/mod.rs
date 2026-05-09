@@ -127,6 +127,12 @@ enum ActorMessage {
     },
 }
 
+enum ActorEvent {
+    Command(ActorMessage),
+    CommandsClosed,
+    Response(core::result::Result<Response, TransportFailure>),
+}
+
 struct PendingCall {
     command_name: &'static str,
     operation: String,
@@ -183,82 +189,117 @@ impl PendingCall {
     }
 }
 
-async fn run_actor<S>(
-    stream: S,
-    mut commands: mpsc::Receiver<ActorMessage>,
-    state: Arc<TransportState>,
-) where
-    S: AsyncRead + AsyncWrite + Unpin,
+async fn run_actor<S>(stream: S, commands: mpsc::Receiver<ActorMessage>, state: Arc<TransportState>)
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let (mut reader, mut writer) = tokio::io::split(stream);
-    let mut decoder = FrameDecoder::new();
+    let (reader, mut writer) = tokio::io::split(stream);
+    let (events, mut event_receiver) = mpsc::channel(ACTOR_QUEUE_CAPACITY * 2);
+    let command_task = tokio::spawn(forward_commands(commands, events.clone()));
+    let read_task = tokio::spawn(forward_responses(reader, events));
     let mut pending = VecDeque::new();
     let mut commands_closed = false;
 
-    loop {
-        if commands_closed && pending.is_empty() {
-            let _ = writer.shutdown().await;
-            return;
+    while let Some(event) = event_receiver.recv().await {
+        match event {
+            ActorEvent::Command(message) => match message {
+                ActorMessage::Request {
+                    request,
+                    operation,
+                    reply,
+                } => {
+                    let command_name = request.command_name();
+                    let frame = match encode_request(&request) {
+                        Ok(frame) => frame,
+                        Err(failure) => {
+                            let _ = reply.send(Err(failure.to_error(&operation)));
+                            continue;
+                        }
+                    };
+                    pending.push_back(PendingCall::reply(command_name, operation, reply));
+                    if let Err(failure) = write_frame(&mut writer, &frame).await {
+                        fail_transport(&mut pending, &state, failure);
+                        break;
+                    }
+                }
+                ActorMessage::BestEffort { request } => {
+                    let command_name = request.command_name();
+                    let Ok(frame) = encode_request(&request) else {
+                        continue;
+                    };
+                    pending.push_back(PendingCall::discard(
+                        command_name,
+                        request_operation(&request),
+                    ));
+                    if let Err(failure) = write_frame(&mut writer, &frame).await {
+                        fail_transport(&mut pending, &state, failure);
+                        break;
+                    }
+                }
+            },
+            ActorEvent::CommandsClosed => {
+                commands_closed = true;
+            }
+            ActorEvent::Response(result) => match result {
+                Ok(response) => {
+                    let Some(pending_call) = pending.pop_front() else {
+                        fail_transport(
+                            &mut pending,
+                            &state,
+                            TransportFailure::unsolicited_response(&response),
+                        );
+                        break;
+                    };
+                    if let Err(failure) = pending_call.validate_response(&response) {
+                        pending_call.fail(&failure);
+                        fail_transport(&mut pending, &state, failure);
+                        break;
+                    }
+                    pending_call.complete(response);
+                }
+                Err(failure) => {
+                    fail_transport(&mut pending, &state, failure);
+                    break;
+                }
+            },
         }
 
-        tokio::select! {
-            message = commands.recv(), if !commands_closed => {
-                match message {
-                    Some(ActorMessage::Request { request, operation, reply }) => {
-                        let command_name = request.command_name();
-                        let frame = match encode_request(&request) {
-                            Ok(frame) => frame,
-                            Err(failure) => {
-                                let _ = reply.send(Err(failure.to_error(&operation)));
-                                continue;
-                            }
-                        };
-                        pending.push_back(PendingCall::reply(command_name, operation, reply));
-                        if let Err(failure) = write_frame(&mut writer, &frame).await {
-                            fail_transport(&mut pending, &state, failure);
-                            return;
-                        }
-                    }
-                    Some(ActorMessage::BestEffort { request }) => {
-                        let command_name = request.command_name();
-                        let Ok(frame) = encode_request(&request) else {
-                            continue;
-                        };
-                        pending.push_back(PendingCall::discard(command_name, request_operation(&request)));
-                        if let Err(failure) = write_frame(&mut writer, &frame).await {
-                            fail_transport(&mut pending, &state, failure);
-                            return;
-                        }
-                    }
-                    None => {
-                        commands_closed = true;
-                    }
-                }
-            }
-            result = read_response(&mut reader, &mut decoder) => {
-                match result {
-                    Ok(response) => {
-                        let Some(pending_call) = pending.pop_front() else {
-                            fail_transport(
-                                &mut pending,
-                                &state,
-                                TransportFailure::unsolicited_response(&response),
-                            );
-                            return;
-                        };
-                        if let Err(failure) = pending_call.validate_response(&response) {
-                            pending_call.fail(&failure);
-                            fail_transport(&mut pending, &state, failure);
-                            return;
-                        }
-                        pending_call.complete(response);
-                    }
-                    Err(failure) => {
-                        fail_transport(&mut pending, &state, failure);
-                        return;
-                    }
-                }
-            }
+        if commands_closed && pending.is_empty() {
+            let _ = writer.shutdown().await;
+            break;
+        }
+    }
+
+    command_task.abort();
+    read_task.abort();
+}
+
+async fn forward_commands(
+    mut commands: mpsc::Receiver<ActorMessage>,
+    events: mpsc::Sender<ActorEvent>,
+) {
+    while let Some(message) = commands.recv().await {
+        if events.send(ActorEvent::Command(message)).await.is_err() {
+            return;
+        }
+    }
+
+    let _ = events.send(ActorEvent::CommandsClosed).await;
+}
+
+async fn forward_responses<R>(mut reader: R, events: mpsc::Sender<ActorEvent>)
+where
+    R: AsyncRead + Unpin,
+{
+    let mut decoder = FrameDecoder::new();
+    loop {
+        let result = read_response(&mut reader, &mut decoder).await;
+        let stop = result.is_err();
+        if events.send(ActorEvent::Response(result)).await.is_err() {
+            return;
+        }
+        if stop {
+            return;
         }
     }
 }

@@ -15,10 +15,11 @@ pub use rmux_proto::{PaneId, SessionId, SessionName, WindowId};
 
 /// Selects the daemon endpoint resolution strategy used by the SDK.
 ///
-/// `Default` defers to platform defaults resolved through the existing
-/// RMUX OS layer. The explicit variants carry caller-supplied paths/names
-/// and bypass the auto-discovery allowlist while still preserving the
-/// daemon's own permission and symlink checks.
+/// `Default` defers to SDK runtime discovery, falling through to platform
+/// defaults resolved through the existing RMUX IPC/OS layer when no SDK
+/// environment override is accepted. The explicit variants carry
+/// caller-supplied paths/names and bypass the auto-discovery allowlist while
+/// still preserving the daemon's own permission and symlink checks.
 ///
 /// Marked `#[non_exhaustive]` because additional transports (such as TCP
 /// or test-harness in-memory pipes) are anticipated in later steps and
@@ -26,7 +27,7 @@ pub use rmux_proto::{PaneId, SessionId, SessionName, WindowId};
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum RmuxEndpoint {
-    /// Resolve the platform default endpoint via the OS/IPC layer.
+    /// Resolve through SDK discovery, falling through to the platform default.
     #[default]
     Default,
     /// Use an explicit Unix domain socket path.
