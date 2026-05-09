@@ -4,7 +4,7 @@ use std::io;
 #[cfg(windows)]
 use std::io::{Read, Write};
 #[cfg(unix)]
-use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt};
+use std::os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt, PermissionsExt};
 #[cfg(unix)]
 use std::os::unix::net::UnixStream as StdUnixStream;
 use std::path::{Path, PathBuf};
@@ -32,7 +32,9 @@ use crate::server_access::current_owner_uid;
 #[cfg(all(test, unix))]
 const FALLBACK_SOCKET_ROOT: &str = "/tmp";
 #[cfg(unix)]
-const RMUX_SOCK_PERM: u32 = 0o007;
+const BOUND_SOCKET_MODE: u32 = 0o600;
+#[cfg(unix)]
+const UNSAFE_PERMISSION_MASK: u32 = 0o077;
 #[cfg(unix)]
 const SOCKET_DIR_PREFIX: &str = "rmux";
 
@@ -218,6 +220,7 @@ impl ServerDaemon {
             prepare_socket_path(self.config.socket_path())?;
             let endpoint = LocalEndpoint::from_path(self.config.socket_path().to_path_buf());
             let listener = LocalListener::bind(&endpoint)?;
+            enforce_bound_socket_permissions(self.config.socket_path())?;
             let (shutdown_handle, shutdown_receiver) = ShutdownHandle::new();
             let socket_path = self.config.socket_path().to_path_buf();
             let owner_uid = real_user_id()?;
@@ -457,10 +460,48 @@ fn ensure_safe_rmux_socket_directory(path: &Path) -> io::Result<()> {
     }
 
     let user_id = real_user_id()?;
-    if metadata.uid() != user_id || (metadata.mode() & RMUX_SOCK_PERM) != 0 {
+    if metadata.uid() != user_id || (metadata.mode() & UNSAFE_PERMISSION_MASK) != 0 {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!("directory {} has unsafe permissions", path.display()),
+        ));
+    }
+
+    Ok(())
+}
+
+#[cfg(unix)]
+fn enforce_bound_socket_permissions(socket_path: &Path) -> io::Result<()> {
+    validate_bound_socket(socket_path, false)?;
+    fs::set_permissions(socket_path, fs::Permissions::from_mode(BOUND_SOCKET_MODE))?;
+    validate_bound_socket(socket_path, true)
+}
+
+#[cfg(unix)]
+fn validate_bound_socket(socket_path: &Path, require_owner_only: bool) -> io::Result<()> {
+    let metadata = fs::symlink_metadata(socket_path)?;
+    if metadata.file_type().is_symlink() || !metadata.file_type().is_socket() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!(
+                "socket path '{}' is not a Unix socket",
+                socket_path.display()
+            ),
+        ));
+    }
+
+    let user_id = real_user_id()?;
+    if metadata.uid() != user_id {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("socket {} has unsafe ownership", socket_path.display()),
+        ));
+    }
+
+    if require_owner_only && (metadata.mode() & UNSAFE_PERMISSION_MASK) != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("socket {} has unsafe permissions", socket_path.display()),
         ));
     }
 
