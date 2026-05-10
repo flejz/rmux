@@ -108,6 +108,18 @@ impl Pane {
         crate::wait::wait_for_bytes(self, bytes.as_ref().to_vec()).await
     }
 
+    /// Waits until the pane's rendered snapshot text contains non-empty `text`.
+    ///
+    /// This is a client-side text wait over fresh [`Self::snapshot`]
+    /// captures. It observes the rendered grid text already present at the
+    /// time of the first snapshot and keeps polling until the configured SDK
+    /// operation timeout expires. Unlike [`Self::wait_for`], this method does
+    /// not subscribe to raw pane output and does not send SDK byte-wait
+    /// cancellation requests.
+    pub async fn wait_for_text(&self, text: impl AsRef<str>) -> Result<()> {
+        crate::wait::wait_for_text(self, text.as_ref().to_owned()).await
+    }
+
     /// Subscribes to the live raw pane output as a typed byte stream.
     ///
     /// Setup performs one `subscribe-pane-output` round trip and is

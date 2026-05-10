@@ -1,4 +1,8 @@
-//! Daemon-backed SDK wait helpers.
+//! Daemon-backed byte waits and snapshot-polled text wait helpers.
+
+use std::future::Future;
+use std::io;
+use std::time::Duration;
 
 use rmux_proto::{
     CancelSdkWaitRequest, PaneOutputSubscriptionStart, Request, Response, RmuxError as ProtoError,
@@ -9,6 +13,10 @@ use crate::handles::{connect_transport_to_endpoint, Pane};
 use crate::transport::DropGuard;
 use crate::{Result, RmuxError};
 
+const WAIT_FOR_BYTES_OPERATION: &str = "wait for pane output bytes";
+const WAIT_FOR_TEXT_OPERATION: &str = "wait for pane snapshot text";
+const TEXT_POLL_INTERVAL: Duration = Duration::from_millis(25);
+
 pub(crate) async fn wait_for_bytes(pane: &Pane, bytes: Vec<u8>) -> Result<()> {
     if bytes.is_empty() {
         return Err(RmuxError::protocol(ProtoError::Server(
@@ -16,11 +24,40 @@ pub(crate) async fn wait_for_bytes(pane: &Pane, bytes: Vec<u8>) -> Result<()> {
         )));
     }
 
+    let timeout = resolved_wait_timeout(pane.configured_default_timeout());
+    with_wait_timeout(
+        WAIT_FOR_BYTES_OPERATION,
+        timeout,
+        wait_for_bytes_without_timeout(pane, bytes, timeout),
+    )
+    .await
+}
+
+pub(crate) async fn wait_for_text(pane: &Pane, text: String) -> Result<()> {
+    if text.is_empty() {
+        return Err(RmuxError::protocol(ProtoError::Server(
+            "SDK wait text must not be empty".to_owned(),
+        )));
+    }
+
+    let timeout = resolved_wait_timeout(pane.configured_default_timeout());
+    with_wait_timeout(
+        WAIT_FOR_TEXT_OPERATION,
+        timeout,
+        wait_for_text_without_timeout(pane, text),
+    )
+    .await
+}
+
+async fn wait_for_bytes_without_timeout(
+    pane: &Pane,
+    bytes: Vec<u8>,
+    timeout: Option<Duration>,
+) -> Result<()> {
     let owner_id = pane.transport().sdk_wait_owner_id();
     let wait_id = pane.transport().allocate_sdk_wait_id();
     let cancel_request = Request::CancelSdkWait(CancelSdkWaitRequest { owner_id, wait_id });
-    let cancel_client =
-        connect_transport_to_endpoint(pane.endpoint(), pane.configured_default_timeout()).await?;
+    let cancel_client = connect_transport_to_endpoint(pane.endpoint(), timeout).await?;
     let mut cancel_guard = DropGuard::best_effort(cancel_client, cancel_request);
 
     let result = pane
@@ -36,6 +73,49 @@ pub(crate) async fn wait_for_bytes(pane: &Pane, bytes: Vec<u8>) -> Result<()> {
 
     cancel_guard.disarm();
     sdk_wait_response_to_result(result?, wait_id)
+}
+
+async fn wait_for_text_without_timeout(pane: &Pane, text: String) -> Result<()> {
+    loop {
+        let snapshot = pane.snapshot().await?;
+        if snapshot.visible_text().contains(&text) {
+            return Ok(());
+        }
+        tokio::time::sleep(TEXT_POLL_INTERVAL).await;
+    }
+}
+
+async fn with_wait_timeout<F, T>(
+    operation: &'static str,
+    timeout: Option<Duration>,
+    future: F,
+) -> Result<T>
+where
+    F: Future<Output = Result<T>>,
+{
+    match timeout {
+        Some(timeout) => tokio::time::timeout(timeout, future)
+            .await
+            .map_err(|_| wait_timeout_error(operation, timeout))?,
+        None => future.await,
+    }
+}
+
+fn resolved_wait_timeout(default_timeout: Option<Duration>) -> Option<Duration> {
+    crate::bootstrap::discovery::resolve_timeout(None, default_timeout)
+}
+
+fn wait_timeout_error(operation: &'static str, timeout: Duration) -> RmuxError {
+    RmuxError::transport(
+        operation,
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            format!(
+                "timed out after {}s while {operation}",
+                timeout.as_secs_f32()
+            ),
+        ),
+    )
 }
 
 fn sdk_wait_response_to_result(response: Response, expected_wait_id: SdkWaitId) -> Result<()> {
@@ -172,5 +252,38 @@ mod tests {
             } => assert!(message.contains("did not match request id 9")),
             error => panic!("expected protocol mismatch, got {error:?}"),
         }
+    }
+
+    #[test]
+    fn duration_max_resolves_to_no_timeout_for_wait_operations() {
+        assert_eq!(resolved_wait_timeout(Some(Duration::MAX)), None);
+    }
+
+    #[tokio::test]
+    async fn finite_wait_timeout_surfaces_typed_timeout_error() {
+        let error = with_wait_timeout(
+            "test wait operation",
+            Some(Duration::from_millis(1)),
+            std::future::pending::<Result<()>>(),
+        )
+        .await
+        .expect_err("pending wait must time out");
+
+        match error {
+            RmuxError::Transport { operation, source } => {
+                assert_eq!(operation, "test wait operation");
+                assert_eq!(source.kind(), io::ErrorKind::TimedOut);
+            }
+            other => panic!("expected typed transport timeout, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn no_timeout_branch_awaits_future_directly() {
+        let value = with_wait_timeout("test no timeout", None, async { Ok(7_u8) })
+            .await
+            .expect("untimed ready future completes");
+
+        assert_eq!(value, 7);
     }
 }
