@@ -281,7 +281,14 @@ impl DetachChord {
 /// pane. `Armed` indicates the detector has consumed the prefix and is
 /// waiting for the follow-up key inside the timeout window.
 /// `DetachRequested` indicates the chord matched and the host should
-/// detach the client.
+/// invoke its own explicit detach action; the detector itself never
+/// performs side effects on the host's behalf.
+///
+/// `DetachRequested` is purely a signal. The detector returns the
+/// chord-completion verdict; the host owns whether (and how) to actually
+/// detach the attached client. A host that ignores `DetachRequested`
+/// observes no further state from the detector — the detector has
+/// already returned to idle and is ready for a fresh chord cycle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DetachOutcome {
     /// Forward this exact list of events to the attached pane.
@@ -306,6 +313,46 @@ enum DetectorState {
 /// drive every state transition without sleeping. The detector is purely
 /// a state machine: it never spawns threads, never reads from a terminal,
 /// and never owns a clock of its own.
+///
+/// # Contract
+///
+/// The detector's behaviour is fully specified by the following rules:
+///
+/// 1. **Strict code+modifier equality.** A key matches the chord's
+///    `prefix` (or `detach`) slot only when both [`KeyCode`] and the
+///    full [`KeyModifiers`] bitfield are byte-for-byte equal to the
+///    configured event. `Ctrl+B` does not match `Ctrl+Shift+B`.
+/// 2. **Prefix swallowing.** While idle, observing the prefix transitions
+///    the detector to `PrefixHeld` and returns
+///    [`DetachOutcome::Armed`]; the prefix is consumed and is *not*
+///    forwarded to the pane until the timeout lapses or a mismatch is
+///    seen.
+/// 3. **Chord completion.** While `PrefixHeld`, observing the detach
+///    follow-up returns [`DetachOutcome::DetachRequested`] and the
+///    detector returns to idle without forwarding anything.
+/// 4. **Mismatch forwarding.** While `PrefixHeld`, observing any other
+///    event (including the prefix again) returns
+///    `DetachOutcome::Forward(vec![prefix, event])` in that order, and
+///    the detector returns to idle.
+/// 5. **Timeout flushing.** A `feed` or [`tick`](Self::tick) call where
+///    `now.saturating_duration_since(prefix_arrival) >= timeout` flushes
+///    the held prefix as `Forward(vec![prefix])` and returns the
+///    detector to idle. For [`feed`](Self::feed), the new event is then
+///    processed against the now-idle detector and any extra forwarded
+///    events are appended after the flushed prefix.
+/// 6. **Zero-timeout edge case.** A `Duration::ZERO` timeout means any
+///    observation strictly after the prefix is treated as expired
+///    (`>=` is the comparison): the detector flushes the prefix and
+///    forwards the new event without ever firing the chord. Hosts that
+///    want chord behaviour must configure a non-zero timeout.
+/// 7. **Equal prefix/detach edge case.** If a chord is configured with
+///    `prefix == detach`, the detach branch is checked first while
+///    `PrefixHeld`, so pressing the shared key twice quickly enough
+///    returns `DetachRequested`.
+/// 8. **Reusability.** The detector is fully reusable after every
+///    terminal outcome: hosts may keep a single detector across
+///    sessions or runs. After `DetachRequested`, the detector is idle
+///    and a subsequent `tick` returns `Forward(vec![])`.
 #[derive(Debug, Clone)]
 pub struct DetachDetector {
     chord: DetachChord,
