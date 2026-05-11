@@ -15,7 +15,9 @@ use rmux_proto::{
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 #[cfg(windows)]
-use windows_sys::Win32::Foundation::{ERROR_NO_DATA, ERROR_PIPE_BUSY, ERROR_PIPE_NOT_CONNECTED};
+use windows_sys::Win32::Foundation::{
+    ERROR_FILE_NOT_FOUND, ERROR_NO_DATA, ERROR_PIPE_BUSY, ERROR_PIPE_NOT_CONNECTED,
+};
 
 fn alpha() -> SessionName {
     SessionName::new("alpha").expect("valid session")
@@ -40,11 +42,13 @@ fn windows_pipe_retry_policy_covers_transient_startup_errors() {
     let busy = io::Error::from_raw_os_error(ERROR_PIPE_BUSY as i32);
     let not_connected = io::Error::from_raw_os_error(ERROR_PIPE_NOT_CONNECTED as i32);
     let no_data = io::Error::from_raw_os_error(ERROR_NO_DATA as i32);
+    let raw_not_found = io::Error::from_raw_os_error(ERROR_FILE_NOT_FOUND as i32);
     let not_found = io::Error::new(io::ErrorKind::NotFound, "pipe absent");
 
     assert!(windows_pipe_connect_retryable(&busy));
     assert!(windows_pipe_connect_retryable(&not_connected));
     assert!(windows_pipe_connect_retryable(&no_data));
+    assert!(windows_pipe_connect_retryable(&raw_not_found));
     assert!(!windows_pipe_connect_retryable(&not_found));
 }
 

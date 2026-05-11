@@ -56,6 +56,20 @@ impl StartupDeadline {
         self.sleep_for_at(Instant::now(), poll_interval)
     }
 
+    #[cfg_attr(not(any(windows, test)), allow(dead_code))]
+    pub(crate) fn remaining_timeout(self) -> Option<Duration> {
+        self.remaining_timeout_at(Instant::now())
+    }
+
+    #[cfg_attr(not(any(windows, test)), allow(dead_code))]
+    pub(crate) fn remaining_timeout_at(self, now: Instant) -> Option<Duration> {
+        self.requested.map(|_| {
+            self.expires_at
+                .map(|expires_at| expires_at.saturating_duration_since(now))
+                .unwrap_or(Duration::MAX)
+        })
+    }
+
     pub(crate) fn sleep_for_at(self, now: Instant, poll_interval: Duration) -> Duration {
         self.expires_at
             .map(|expires_at| poll_interval.min(expires_at.saturating_duration_since(now)))
@@ -72,6 +86,7 @@ mod tests {
         let now = Instant::now();
         let deadline = StartupDeadline::from_timeout_at(Some(Duration::MAX), now);
         assert_eq!(deadline.requested_timeout(), None);
+        assert_eq!(deadline.remaining_timeout(), None);
         assert!(!deadline.is_elapsed_at(now + Duration::from_secs(1)));
         assert_eq!(
             deadline.sleep_for_at(now + Duration::from_secs(1), Duration::from_millis(5)),
@@ -97,6 +112,14 @@ mod tests {
         assert_eq!(
             deadline.elapsed_at(now + Duration::from_millis(12)),
             Duration::from_millis(12)
+        );
+        assert_eq!(
+            deadline.remaining_timeout_at(now + Duration::from_millis(7)),
+            Some(Duration::from_millis(3))
+        );
+        assert_eq!(
+            deadline.remaining_timeout_at(now + Duration::from_millis(12)),
+            Some(Duration::ZERO)
         );
     }
 }

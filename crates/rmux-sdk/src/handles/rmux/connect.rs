@@ -16,7 +16,9 @@ use crate::{Result, RmuxEndpoint, RmuxError};
 #[cfg(windows)]
 use tokio::net::windows::named_pipe::{ClientOptions, NamedPipeClient};
 #[cfg(windows)]
-use windows_sys::Win32::Foundation::{ERROR_NO_DATA, ERROR_PIPE_BUSY, ERROR_PIPE_NOT_CONNECTED};
+use windows_sys::Win32::Foundation::{
+    ERROR_FILE_NOT_FOUND, ERROR_NO_DATA, ERROR_PIPE_BUSY, ERROR_PIPE_NOT_CONNECTED,
+};
 
 const INTERNAL_DAEMON_FLAG: &str = "--__internal-daemon";
 #[cfg(windows)]
@@ -93,6 +95,7 @@ async fn connect_or_start_transport_for_platform(
     default_timeout: Option<Duration>,
 ) -> Result<TransportClient> {
     let timeout = startup_operation_timeout(default_timeout);
+    let startup_deadline = StartupDeadline::from_timeout(timeout);
     let RmuxEndpoint::WindowsPipe(pipe) = endpoint else {
         return connect_transport(endpoint, timeout).await;
     };
@@ -103,7 +106,7 @@ async fn connect_or_start_transport_for_platform(
             let pipe_path = pipe_path.clone();
             async move { spawn_hidden_daemon(pipe_path.as_os_str()) }
         },
-        timeout,
+        startup_deadline.requested_timeout(),
         crate::bootstrap::startup_windows::STARTUP_POLL_INTERVAL,
     )
     .await
@@ -111,9 +114,11 @@ async fn connect_or_start_transport_for_platform(
     // Windows startup probes use a blocking client stream owned by a private
     // Tokio runtime. The SDK transport actor must own an async pipe client on
     // the caller's runtime, so reconnect here with the same configured retry
-    // budget instead of using a raw one-shot open.
+    // budget instead of using a raw one-shot open. Reuse only the remaining
+    // startup budget so connect_or_start never becomes startup timeout plus
+    // another full connect timeout.
     drop(outcome);
-    connect_transport(endpoint, timeout).await
+    connect_transport(endpoint, startup_deadline.remaining_timeout()).await
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -206,6 +211,7 @@ pub(super) fn windows_pipe_connect_retryable(error: &io::Error) -> bool {
             if code == ERROR_PIPE_BUSY as i32
                 || code == ERROR_PIPE_NOT_CONNECTED as i32
                 || code == ERROR_NO_DATA as i32
+                || code == ERROR_FILE_NOT_FOUND as i32
     )
 }
 

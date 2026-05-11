@@ -103,10 +103,8 @@ async fn ci_runner_collects_command_output_and_exit() -> TestResult {
 #[tokio::test]
 async fn interactive_repl_waits_for_prompt_and_interrupts() -> TestResult {
     let _lock = LIVE_DAEMON_LOCK.lock().await;
-    let Some(python) = python3() else {
-        eprintln!("python3 not found; scenario deferred by docs/feature-inventory-v1.yaml");
-        return Ok(());
-    };
+    let python =
+        python3().ok_or("python3 is required for the interactive REPL acceptance smoke")?;
 
     let harness = Harness::start("python-repl").await?;
     let rmux = harness.rmux();

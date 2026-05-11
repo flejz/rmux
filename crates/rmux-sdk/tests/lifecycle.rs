@@ -43,6 +43,7 @@ async fn pane_close_and_respawn_preserve_slot_semantics() -> TestResult {
     let marker = "RMUX_SDK_OLD_MARKER";
     pane.send_text(format!("printf '{marker}\\n'\n")).await?;
     wait_for_visible_text(&pane, marker).await?;
+    let before_respawn_snapshot = pane.snapshot().await?;
 
     let active_error = pane
         .respawn(PaneRespawnOptions::default())
@@ -68,8 +69,14 @@ async fn pane_close_and_respawn_preserve_slot_semantics() -> TestResult {
     let after = wait_for_generation(&pane, before.generation).await?;
     assert_eq!(after.id, pane_id);
     assert!(after.generation > before.generation);
+    let after_respawn_snapshot =
+        wait_for_revision_change(&pane, before_respawn_snapshot.revision).await?;
     assert!(
-        !pane.snapshot().await?.visible_text().contains(marker),
+        after_respawn_snapshot.revision > before_respawn_snapshot.revision,
+        "respawn must advance the retained pane revision"
+    );
+    assert!(
+        !after_respawn_snapshot.visible_text().contains(marker),
         "respawn must clear old visible parser state"
     );
 
@@ -159,6 +166,25 @@ async fn wait_for_generation(pane: &rmux_sdk::Pane, previous: u64) -> TestResult
         if Instant::now() >= deadline {
             return Err(
                 format!("pane lifecycle generation did not advance past {previous}").into(),
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+async fn wait_for_revision_change(
+    pane: &rmux_sdk::Pane,
+    previous_revision: u64,
+) -> TestResult<rmux_sdk::PaneSnapshot> {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let snapshot = pane.snapshot().await?;
+        if snapshot.revision > previous_revision {
+            return Ok(snapshot);
+        }
+        if Instant::now() >= deadline {
+            return Err(
+                format!("pane snapshot revision did not advance past {previous_revision}").into(),
             );
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
