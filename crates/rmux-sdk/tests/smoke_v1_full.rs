@@ -175,7 +175,7 @@ async fn dashboard_snapshot_updates_are_revision_gated() -> TestResult {
     assert!(changed.revision > baseline.revision);
     assert_ne!(changed.visible_text(), baseline.visible_text());
 
-    sleep(Duration::from_millis(120)).await;
+    let changed = wait_for_stable_snapshot(&pane, changed.revision).await?;
     let idle = pane.snapshot().await?;
     assert_eq!(
         idle.revision, changed.revision,
@@ -326,6 +326,32 @@ async fn wait_for_snapshot_text_after_revision(
             .into());
         }
         sleep(Duration::from_millis(20)).await;
+    }
+}
+
+async fn wait_for_stable_snapshot(
+    pane: &rmux_sdk::Pane,
+    minimum_revision: u64,
+) -> TestResult<rmux_sdk::PaneSnapshot> {
+    let deadline = Instant::now() + DEFAULT_TIMEOUT;
+    let mut previous = pane.snapshot().await?;
+    loop {
+        sleep(Duration::from_millis(100)).await;
+        let current = pane.snapshot().await?;
+        if current.revision >= minimum_revision
+            && current.revision == previous.revision
+            && current.visible_text() == previous.visible_text()
+        {
+            return Ok(current);
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "snapshot did not stabilize after revision {minimum_revision}; last revision was {}",
+                current.revision
+            )
+            .into());
+        }
+        previous = current;
     }
 }
 
