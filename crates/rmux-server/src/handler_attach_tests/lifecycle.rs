@@ -258,16 +258,18 @@ async fn attached_live_input_preserves_split_utf8_sequences() {
         "attached input must preserve the split utf-8 output",
     )
     .await;
-    assert!(
-        capture.contains(command.echoed_command),
-        "attached input must preserve the split utf-8 command text, got {capture:?}"
-    );
+    if let Some(echoed_command) = command.echoed_command {
+        assert!(
+            capture.contains(echoed_command),
+            "attached input must preserve the split utf-8 command text, got {capture:?}"
+        );
+    }
 }
 
 struct SplitUtf8EchoCommand {
     chunks: Vec<&'static [u8]>,
     output_needle: &'static str,
-    echoed_command: &'static str,
+    echoed_command: Option<&'static str>,
 }
 
 #[cfg(unix)]
@@ -275,7 +277,7 @@ fn split_utf8_echo_command() -> SplitUtf8EchoCommand {
     SplitUtf8EchoCommand {
         chunks: vec![b"printf 'cafe \xe6", b"\x96", b"\x87\\n'\r"],
         output_needle: "\ncafe 文",
-        echoed_command: "printf 'cafe 文\\n'",
+        echoed_command: Some("printf 'cafe 文\\n'"),
     }
 }
 
@@ -284,6 +286,9 @@ fn split_utf8_echo_command() -> SplitUtf8EchoCommand {
     SplitUtf8EchoCommand {
         chunks: vec![b"Write-Output 'cafe \xe6", b"\x96", b"\x87'\r"],
         output_needle: "\ncafe 文",
-        echoed_command: "Write-Output 'cafe 文'",
+        // PowerShell/PSReadLine can render split multibyte input as '?' in the
+        // interactive echo while still executing the decoded command correctly.
+        // The command output remains the portable oracle for RMUX input bytes.
+        echoed_command: None,
     }
 }
