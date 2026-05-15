@@ -17,7 +17,7 @@
 
 </div>
 
-RMUX is a local client/server terminal multiplexer written in Rust. It provides a command-line multiplexer, a daemon-backed Rust SDK, and a ratatui widget for rendering live pane snapshots inside terminal user interfaces.
+The universal Rust multiplexer for the agentic era: detachable apps, scriptable sessions, inspectable panes, a tmux-compatible CLI, a daemon-backed Rust SDK, and native Ratatui integration.
 
 
 ## What RMUX Provides
