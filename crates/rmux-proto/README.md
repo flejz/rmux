@@ -14,7 +14,7 @@ payload length  little-endian u32
 payload         bincode v1 DTO
 ```
 
-The crate ships the `V1_FRAME_LEDGER` so consumers can audit which wire
+The crate ships the `V1_FRAME_LEDGER` so consumers can inspect which wire
 revisions they support; breaking changes bump the varint and add a new
 entry rather than mutating the existing frame.
 
