@@ -297,7 +297,7 @@ jobs:
 
   windows-runtime-smoke:
     name: Native Windows runtime smoke
-    if: github.event_name == 'workflow_dispatch' && inputs.windows_runtime_smoke
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.windows_runtime_smoke)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
