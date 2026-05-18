@@ -214,7 +214,7 @@ impl OwnedSession {
     /// Immediately runs the same cleanup path as [`Self::cleanup`].
     ///
     /// This is a naming convenience for apps that already own their signal or
-    /// cancellation orchestration and want an explicit shutdown hook.
+    /// cancellation handling and want an explicit shutdown hook.
     pub async fn shutdown_now(&mut self) -> Result<bool> {
         self.cleanup().await
     }
