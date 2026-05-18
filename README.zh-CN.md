@@ -26,7 +26,7 @@
 </div>
 
 > [!IMPORTANT]
-> 发布日期：**2026 年 5 月 16 日**。90 条 tmux-compatible commands 已全部实现，但这仍是新的公开预览版本，可能存在 bug。遇到问题时可在 [issues](https://github.com/helvesec/rmux/issues) 中反馈。
+> 当前版本：**v0.2.0**，发布于 **2026 年 5 月 18 日**。90 条 tmux-compatible commands 已全部实现，但这仍是新的公开预览版本，可能存在 bug。遇到问题时可在 [issues](https://github.com/helvesec/rmux/issues) 中反馈。
 
 ## RMUX 提供什么
 

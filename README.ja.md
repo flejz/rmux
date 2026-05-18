@@ -26,7 +26,7 @@
 </div>
 
 > [!IMPORTANT]
-> **2026年5月16日**に公開。tmux 互換の 90 コマンドはすべて実装済みですが、まだ新しい public preview のため bug が残る可能性があります。問題は [issues](https://github.com/helvesec/rmux/issues) へ報告できます。
+> 現在のリリースは **v0.2.0**、公開日は **2026年5月18日**。tmux 互換の 90 コマンドはすべて実装済みですが、まだ新しい public preview のため bug が残る可能性があります。問題は [issues](https://github.com/helvesec/rmux/issues) へ報告できます。
 
 ## RMUX が提供するもの
 

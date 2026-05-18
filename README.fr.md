@@ -26,7 +26,7 @@
 </div>
 
 > [!IMPORTANT]
-> Publié le **16 mai 2026**. Les 90 commandes compatibles tmux sont implémentées, mais des bugs restent possibles : cette version est un aperçu public récent. [Signaler les problèmes](https://github.com/helvesec/rmux/issues) rencontrés.
+> Version actuelle : **v0.2.0**, publiée le **18 mai 2026**. Les 90 commandes compatibles tmux sont implémentées, mais des bugs restent possibles : cette version est un aperçu public récent. [Signaler les problèmes](https://github.com/helvesec/rmux/issues) rencontrés.
 
 ## Ce que RMUX fournit
 
