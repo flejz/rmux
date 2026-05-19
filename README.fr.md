@@ -38,8 +38,15 @@ RMUX est utilisable par les agents, les workflows CLI headless et les humains : 
 
 **Docs complètes :** [rmux.io/docs](https://rmux.io/docs/) · [Démarrer](https://rmux.io/docs/get-started/) · [Exemples](https://rmux.io/docs/examples/) · [API](https://rmux.io/docs/api/) · [CLI](https://rmux.io/docs/cli/)
 
-| [<img src="https://rmux.io/demos/demo-orchestration.png" width="150" alt="Aperçu de la démo orchestration multi-agents">](https://rmux.io/#demo-orchestration)<br><sub>Orchestration multi-agents</sub><br><sub>≃ 514 lines</sub> | [<img src="https://rmux.io/demos/demo-broadcast.png" width="150" alt="Aperçu de la démo Agent Broadcast Arena">](https://rmux.io/#demo-broadcast)<br><sub>Agent Broadcast Arena</sub><br><sub>≃ 2,171 lines</sub> | [<img src="https://rmux.io/demos/demo-zellij.png" width="150" alt="Aperçu de la démo Mini-Zellij">](https://rmux.io/#demo-zellij)<br><sub>Mini-Zellij</sub><br><sub>≃ 944 lines</sub> | [<img src="https://rmux.io/demos/demo-mirroring.png" width="150" alt="Aperçu de la démo miroir terminal navigateur">](https://rmux.io/#demo-mirroring)<br><sub>Miroir terminal &lt;&gt; navigateur</sub><br><sub>≃ 649 lines</sub> | [<img src="https://rmux.io/demos/demo-playwright.png" width="150" alt="Aperçu de la démo tests Playwright">](https://rmux.io/#demo-playwright)<br><sub>Tests Playwright</sub><br><sub>≃ 1,495 lines</sub> |
-| --- | --- | --- | --- | --- |
+<table>
+  <tr>
+    <td align="center" width="20%"><a href="https://rmux.io/#demo-orchestration"><img src="https://rmux.io/demos/demo-orchestration.png" width="150" alt="Aperçu de la démo orchestration multi-agents"></a><br><sub>Orchestration multi-agents</sub><br><sub>≃ 514 lines</sub></td>
+    <td align="center" width="20%"><a href="https://rmux.io/#demo-broadcast"><img src="https://rmux.io/demos/demo-broadcast.png" width="150" alt="Aperçu de la démo Agent Broadcast Arena"></a><br><sub>Agent Broadcast Arena</sub><br><sub>≃ 2,171 lines</sub></td>
+    <td align="center" width="20%"><a href="https://rmux.io/#demo-zellij"><img src="https://rmux.io/demos/demo-zellij.png" width="150" alt="Aperçu de la démo Mini-Zellij"></a><br><sub>Mini-Zellij</sub><br><sub>≃ 944 lines</sub></td>
+    <td align="center" width="20%"><a href="https://rmux.io/#demo-mirroring"><img src="https://rmux.io/demos/demo-mirroring.png" width="150" alt="Aperçu de la démo miroir terminal navigateur"></a><br><sub>Miroir terminal &lt;&gt; navigateur</sub><br><sub>≃ 649 lines</sub></td>
+    <td align="center" width="20%"><a href="https://rmux.io/#demo-playwright"><img src="https://rmux.io/demos/demo-playwright.png" width="150" alt="Aperçu de la démo tests Playwright"></a><br><sub>Tests Playwright</sub><br><sub>≃ 1,495 lines</sub></td>
+  </tr>
+</table>
 
 <a id="install"></a>
 
