@@ -587,7 +587,8 @@ fn attach_target_for_session_with_prompt(
         },
     );
     let kitty_graphics_passthrough = active_pane.as_ref().is_some_and(|pane| {
-        kitty_graphics_passthrough_enabled(session, &state.options, pane, &outer_terminal)
+        !state.pane_in_mode(session_name, pane.id())
+            && kitty_graphics_passthrough_enabled(session, &state.options, pane, &outer_terminal)
     });
 
     Ok(AttachTarget {

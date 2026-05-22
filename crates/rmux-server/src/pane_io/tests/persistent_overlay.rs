@@ -219,6 +219,58 @@ async fn forward_attach_defers_kitty_passthroughs_until_persistent_overlay_clear
     );
 }
 
+#[tokio::test]
+async fn forward_attach_drops_kitty_passthroughs_when_target_gate_is_disabled() {
+    let handler = Arc::new(RequestHandler::new());
+    let session_name = SessionName::new("alpha").expect("valid session name");
+    let (stream, mut peer) = tokio::net::UnixStream::pair().expect("attach stream pair");
+    let (shutdown_tx, shutdown_rx) = watch::channel(());
+    let (_control_tx, control_rx) = mpsc::unbounded_channel();
+    let closing = Arc::new(AtomicBool::new(false));
+    let pane_output = pane_output_channel();
+    let live_input = LiveAttachInputContext {
+        handler,
+        attach_pid: std::process::id(),
+    };
+
+    let attach_task = tokio::spawn(forward_attach(
+        stream,
+        test_attach_target_with_output(&session_name, b"BASE-0", None, pane_output.clone(), false),
+        Vec::new(),
+        shutdown_rx,
+        control_rx,
+        closing,
+        Arc::new(AtomicU64::new(0)),
+        live_input,
+    ));
+
+    let _ = read_attach_data_until(&mut peer, b"BASE-0").await;
+    pane_output.send_for_generation_with_passthroughs(
+        None,
+        b"tick".to_vec(),
+        vec![rmux_core::TerminalPassthrough::kitty_graphics(
+            0,
+            0,
+            b"Gf=100;AAA",
+        )],
+    );
+
+    let pending = read_attach_data_for(&mut peer, Duration::from_millis(100)).await;
+    assert!(
+        !pending
+            .windows(b"\x1b_G".len())
+            .any(|window| window == b"\x1b_G"),
+        "disabled kitty passthrough target should never emit ESC_G: {pending:?}"
+    );
+
+    shutdown_tx.send(()).expect("request attach shutdown");
+    let result = attach_task.await.expect("attach task join");
+    assert!(
+        result.is_ok(),
+        "forward_attach should stay healthy: {result:?}"
+    );
+}
+
 async fn read_attach_data_for(peer: &mut tokio::net::UnixStream, duration: Duration) -> Vec<u8> {
     let mut collected = Vec::new();
     let mut frame_bytes = [0_u8; 4096];
