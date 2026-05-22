@@ -32,7 +32,7 @@
 
 RMUX existe parce que je crois que le cas d'usage de tmux n'a été exploré qu'en partie. Mon point de départ était simple : lancer des agents longue durée via SSH sans perdre leurs terminaux, tout en pouvant inspecter, scripter et orchestrer ce qui les entoure.
 
-J'ai donc reconstruit cette idée à partir de zéro en Rust : un multiplexeur ultra-rapide compatible tmux, avec SDK typé, sessions persistantes, snapshots structurés et transports locaux natifs sur Linux, macOS et Windows, y compris les Windows Named Pipes. Pas besoin de WSL.
+J'ai donc reconstruit cette idée à partir de zéro en Rust : un multiplexeur ultra-rapide compatible tmux, avec SDK typé, sessions persistantes, snapshots structurés et transports locaux natifs sur Linux, macOS et Windows, y compris les Windows Named Pipes.
 
 RMUX est utilisable par les agents, les workflows CLI sans interface et les humains : il permet de donner une exécution détachable aux applications terminal, de se reconnecter plus tard, d'inspecter leur état, de les piloter depuis du code, ou simplement de s'en servir pour du travail terminal classique façon tmux.
 
