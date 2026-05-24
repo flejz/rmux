@@ -4,8 +4,8 @@ use std::sync::Arc;
 use super::RequestHandler;
 use crate::control::{ControlModeUpgrade, ControlServerEvent};
 use rmux_proto::{
-    ClientTerminalContext, ControlMode, KillSessionRequest, NewSessionRequest, Request, Response,
-    SessionName, TerminalSize,
+    ClientTerminalContext, ControlMode, KillSessionRequest, KillWindowRequest, NewSessionRequest,
+    NewWindowRequest, Request, Response, SessionName, TerminalSize, WindowTarget,
 };
 use tokio::sync::mpsc;
 
@@ -23,6 +23,26 @@ async fn new_session(handler: &RequestHandler, session_name: &SessionName) {
         }))
         .await;
     assert!(matches!(response, Response::NewSession(_)));
+}
+
+async fn new_window(handler: &RequestHandler, session_name: &SessionName) -> WindowTarget {
+    let response = handler
+        .handle(Request::NewWindow(NewWindowRequest {
+            target: session_name.clone(),
+            name: None,
+            detached: true,
+            start_directory: None,
+            environment: None,
+            command: None,
+            target_window_index: None,
+            insert_at_target: false,
+        }))
+        .await;
+
+    let Response::NewWindow(response) = response else {
+        panic!("expected new-window response");
+    };
+    response.target
 }
 
 async fn register_control_session(
@@ -73,6 +93,34 @@ async fn dispatch_as(handler: &RequestHandler, requester_pid: u32, request: Requ
     outcome.response
 }
 
+fn drain_control_events(
+    rx: &mut mpsc::UnboundedReceiver<ControlServerEvent>,
+) -> Vec<ControlServerEvent> {
+    let mut events = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        events.push(event);
+    }
+    events
+}
+
+fn assert_has_exit(events: &[ControlServerEvent]) {
+    assert!(
+        events
+            .iter()
+            .any(|event| matches!(event, ControlServerEvent::Exit(None))),
+        "control client must receive %exit after target deletion, got {events:?}"
+    );
+}
+
+fn assert_has_no_exit(events: &[ControlServerEvent]) {
+    assert!(
+        !events
+            .iter()
+            .any(|event| matches!(event, ControlServerEvent::Exit(_))),
+        "control client must stay open, got {events:?}"
+    );
+}
+
 #[tokio::test]
 async fn control_client_exits_when_its_target_session_is_killed() {
     let handler = RequestHandler::new();
@@ -80,7 +128,7 @@ async fn control_client_exits_when_its_target_session_is_killed() {
     let requester_pid = 4242;
     new_session(&handler, &alpha).await;
     let mut rx = register_control_session(&handler, requester_pid, alpha.clone()).await;
-    while rx.try_recv().is_ok() {}
+    let _ = drain_control_events(&mut rx);
 
     let response = dispatch_as(
         &handler,
@@ -94,18 +142,85 @@ async fn control_client_exits_when_its_target_session_is_killed() {
     .await;
     assert!(matches!(response, Response::KillSession(_)));
 
-    let events = {
-        let mut events = Vec::new();
-        while let Ok(event) = rx.try_recv() {
-            events.push(event);
-        }
-        events
-    };
+    assert_has_exit(&drain_control_events(&mut rx));
+}
 
+#[tokio::test]
+async fn control_client_stays_open_when_last_window_kill_is_rejected() {
+    let handler = RequestHandler::new();
+    let alpha = session_name("alpha");
+    let requester_pid = 4243;
+    new_session(&handler, &alpha).await;
+    let mut rx = register_control_session(&handler, requester_pid, alpha.clone()).await;
+    let _ = drain_control_events(&mut rx);
+
+    let response = dispatch_as(
+        &handler,
+        requester_pid,
+        Request::KillWindow(KillWindowRequest {
+            target: WindowTarget::with_window(alpha, 0),
+            kill_all_others: false,
+        }),
+    )
+    .await;
+    assert!(matches!(response, Response::Error(_)));
+
+    assert_has_no_exit(&drain_control_events(&mut rx));
+}
+
+#[tokio::test]
+async fn control_client_stays_open_when_another_session_is_killed() {
+    let handler = RequestHandler::new();
+    let alpha = session_name("alpha");
+    let beta = session_name("beta");
+    let requester_pid = 4244;
+    new_session(&handler, &alpha).await;
+    new_session(&handler, &beta).await;
+    let mut rx = register_control_session(&handler, requester_pid, alpha).await;
+    let _ = drain_control_events(&mut rx);
+
+    let response = dispatch_as(
+        &handler,
+        requester_pid,
+        Request::KillSession(KillSessionRequest {
+            target: beta,
+            kill_all_except_target: false,
+            clear_alerts: false,
+        }),
+    )
+    .await;
+    assert!(matches!(response, Response::KillSession(_)));
+
+    assert_has_no_exit(&drain_control_events(&mut rx));
+}
+
+#[tokio::test]
+async fn control_client_stays_open_when_non_last_window_is_killed() {
+    let handler = RequestHandler::new();
+    let alpha = session_name("alpha");
+    let requester_pid = 4245;
+    new_session(&handler, &alpha).await;
+    let target = new_window(&handler, &alpha).await;
+    let mut rx = register_control_session(&handler, requester_pid, alpha).await;
+    let _ = drain_control_events(&mut rx);
+
+    let response = dispatch_as(
+        &handler,
+        requester_pid,
+        Request::KillWindow(KillWindowRequest {
+            target,
+            kill_all_others: false,
+        }),
+    )
+    .await;
+    assert!(matches!(response, Response::KillWindow(_)));
+
+    let events = drain_control_events(&mut rx);
+    assert_has_no_exit(&events);
     assert!(
         events
             .iter()
-            .any(|event| matches!(event, ControlServerEvent::Exit(None))),
-        "control client must receive %exit after target deletion, got {events:?}"
+            .any(|event| matches!(event, ControlServerEvent::Refresh)),
+        "window deletion should refresh an attached control client, got {events:?}"
     );
 }
