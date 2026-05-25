@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::io;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -32,6 +33,61 @@ impl TerminalProfile {
         session_name: &SessionName,
         session_id: u32,
         socket_path: &Path,
+        spawn_environment: Option<&HashMap<String, String>>,
+        include_terminal_defaults: bool,
+        overrides: Option<&[String]>,
+        pane_id: Option<PaneId>,
+        requested_cwd: Option<&Path>,
+    ) -> Result<Self, RmuxError> {
+        Self::for_session_with_spawn_environment(
+            environment,
+            options,
+            session_name,
+            session_id,
+            socket_path,
+            spawn_environment,
+            include_terminal_defaults,
+            overrides,
+            pane_id,
+            requested_cwd,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn for_initial_session_pane(
+        environment: &EnvironmentStore,
+        options: &OptionStore,
+        session_name: &SessionName,
+        session_id: u32,
+        socket_path: &Path,
+        spawn_environment: Option<&HashMap<String, String>>,
+        include_terminal_defaults: bool,
+        overrides: Option<&[String]>,
+        pane_id: Option<PaneId>,
+        requested_cwd: Option<&Path>,
+    ) -> Result<Self, RmuxError> {
+        Self::for_session_with_spawn_environment(
+            environment,
+            options,
+            session_name,
+            session_id,
+            socket_path,
+            spawn_environment,
+            include_terminal_defaults,
+            overrides,
+            pane_id,
+            requested_cwd,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn for_session_with_spawn_environment(
+        environment: &EnvironmentStore,
+        options: &OptionStore,
+        session_name: &SessionName,
+        session_id: u32,
+        socket_path: &Path,
+        spawn_environment: Option<&HashMap<String, String>>,
         include_terminal_defaults: bool,
         overrides: Option<&[String]>,
         pane_id: Option<PaneId>,
@@ -39,6 +95,11 @@ impl TerminalProfile {
     ) -> Result<Self, RmuxError> {
         let mut resolved = base_process_environment();
         environment.apply_to_process_environment(Some(session_name), &mut resolved);
+        if let Some(spawn_environment) = spawn_environment {
+            for (name, value) in spawn_environment {
+                set_environment_value(&mut resolved, name.clone(), value.clone());
+            }
+        }
 
         if include_terminal_defaults {
             if let Some(default_terminal) =
@@ -260,8 +321,18 @@ fn abbreviate_home(path: &str, home: Option<&str>) -> String {
     }
 }
 
-fn base_process_environment() -> HashMap<String, String> {
-    std::env::vars().collect()
+pub(crate) fn base_process_environment() -> HashMap<String, String> {
+    environment_from_os_pairs(std::env::vars_os())
+}
+
+fn environment_from_os_pairs<I>(pairs: I) -> HashMap<String, String>
+where
+    I: IntoIterator<Item = (OsString, OsString)>,
+{
+    pairs
+        .into_iter()
+        .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
+        .collect()
 }
 
 fn shell_command_window_name(command: &str) -> Option<String> {

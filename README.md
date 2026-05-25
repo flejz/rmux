@@ -14,7 +14,7 @@ English · [Français](README.fr.md) · [简体中文](README.zh-CN.md) · [日�
 
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 [![Release validation](https://github.com/Helvesec/rmux/actions/workflows/ci.yml/badge.svg)](https://github.com/Helvesec/rmux/actions/workflows/ci.yml)
-[![rmux 0.3.0](https://img.shields.io/badge/rmux-0.3.0-informational.svg)](#install)
+[![rmux 0.3.1](https://img.shields.io/badge/rmux-0.3.1-informational.svg)](#install)
 [![Platform: Linux | macOS | Windows](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey.svg)](#platform-support)
 [![Unsafe policy](https://img.shields.io/badge/unsafe-restricted-success.svg)](#verification)
 
@@ -26,7 +26,7 @@ English · [Français](README.fr.md) · [简体中文](README.zh-CN.md) · [日�
 </div>
 
 > [!IMPORTANT]
-> Current release: **v0.3.0**, published on **23 May 2026**. All 90 tmux-compatible commands are implemented, but bugs are expected — this is a fresh public preview. Please [file issues](https://github.com/helvesec/rmux/issues) if you hit one.
+> Current release: **v0.3.1**, published on **25 May 2026**. All 90 tmux-compatible commands are implemented, but bugs are expected — this is a fresh public preview. Please [file issues](https://github.com/helvesec/rmux/issues) if you hit one.
 
 ## Why RMUX
 
@@ -64,7 +64,7 @@ Prebuilt binary for Windows PowerShell:
 irm https://rmux.io/install.ps1 | iex
 ```
 
-Direct downloads and SHA256 checksums are available from the [v0.3.0 GitHub Release](https://github.com/helvesec/rmux/releases/tag/v0.3.0).
+Direct downloads and SHA256 checksums are available from the [v0.3.1 GitHub Release](https://github.com/helvesec/rmux/releases/tag/v0.3.1).
 
 From crates.io with Cargo:
 
@@ -249,21 +249,28 @@ RMUX works with shells that query terminal capabilities, including fish. It
 answers terminal device-attribute probes and handles Escape-key timing so fish
 prompts and key sequences behave normally inside RMUX panes.
 
-Kitty graphics passthrough is available for outer terminals that support the
-Kitty graphics protocol, including Kitty, Ghostty, and WezTerm. It is opt-in:
+Graphics passthrough is available for outer terminals that support Kitty
+graphics or SIXEL. RMUX detects Kitty graphics for Kitty, Ghostty, and WezTerm,
+and detects SIXEL for terminals such as foot, mintty, mlterm, and WezTerm. It
+is opt-in:
 
 ```tmux
 set -g allow-passthrough on
+# or, for tmux-compatible "all" passthrough:
+set -g allow-passthrough all
 ```
 
-If your terminal supports Kitty graphics but is not detected automatically, add
-a terminal feature override:
+If your terminal supports either protocol but is not detected automatically,
+add a terminal feature override:
 
 ```tmux
 set -as terminal-features 'xterm-kitty:kitty-graphics'
+set -as terminal-features 'xterm*:sixel'
 ```
 
-On Windows, RMUX enables modern ConPTY passthrough when the OS supports it. Set
+SIXEL passthrough is covered by the automated Unix PTY attach regression suite.
+On Windows, RMUX enables modern ConPTY passthrough when the OS supports it, but
+SIXEL display still depends on the outer terminal. Set
 `RMUX_CONPTY_NO_PASSTHROUGH=1` to disable that backend mode for troubleshooting.
 
 ## Verification
